@@ -1,0 +1,28 @@
+version: 2
+updates:
+  # ==============================================================================
+  # GitHub Actions Workflows
+  # ==============================================================================
+  # Keeps your Roblox CI/CD workflows up to date (e.g., aftman-action, rojo actions)
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 3
+    labels:
+      - "dependencies"
+      - "ci"
+
+  # ==============================================================================
+  # Node.js Ecosystem (Optional)
+  # ==============================================================================
+  # Only needed if you use npm/yarn for things like open-cloud JavaScript scripts,
+  # or if you are using TypeScript with Roblox-TS.
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 3
+    labels:
+      - "dependencies"
+      - "javascript"
