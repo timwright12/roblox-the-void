@@ -21,14 +21,7 @@ local check = frktest.assert.check
 
 local RoundManager = RobloxEnv.requireModule("../../src/ServerScriptService/RoundManager")
 local FakePlayer = require("../mocks/FakePlayer")
-
-local function newFakeDataManager(dataByPlayer)
-	return {
-		GetData = function(player)
-			return dataByPlayer[player]
-		end,
-	}
-end
+local TestHelpers = require("../mocks/TestHelpers")
 
 local function newPlayerWithData(userId: number)
 	local player = FakePlayer.new(userId)
@@ -43,7 +36,7 @@ return function()
 			local p2, d2 = newPlayerWithData(2)
 			env.players:AddPlayer(p1)
 			env.players:AddPlayer(p2)
-			RoundManager._dataManager = newFakeDataManager({ [p1] = d1, [p2] = d2 })
+			RoundManager._dataManager = TestHelpers.newFakeDataManager({ [p1] = d1, [p2] = d2 })
 
 			RoundManager.StartRound()
 
@@ -59,7 +52,7 @@ return function()
 		test.case("increments roundsPlayed for every player in the server", function()
 			local p1, d1 = newPlayerWithData(1)
 			env.players:AddPlayer(p1)
-			RoundManager._dataManager = newFakeDataManager({ [p1] = d1 })
+			RoundManager._dataManager = TestHelpers.newFakeDataManager({ [p1] = d1 })
 
 			RoundManager.StartRound()
 
@@ -69,7 +62,7 @@ return function()
 		end)
 
 		test.case("quota is never zero even with zero players", function()
-			RoundManager._dataManager = newFakeDataManager({})
+			RoundManager._dataManager = TestHelpers.newFakeDataManager({})
 
 			RoundManager.StartRound()
 
@@ -81,7 +74,7 @@ return function()
 		test.case("increments quota progress during an active round", function()
 			local p1, d1 = newPlayerWithData(1)
 			env.players:AddPlayer(p1)
-			RoundManager._dataManager = newFakeDataManager({ [p1] = d1 })
+			RoundManager._dataManager = TestHelpers.newFakeDataManager({ [p1] = d1 })
 			RoundManager.StartRound()
 
 			RoundManager.RecordKill(p1, 10)
@@ -95,7 +88,7 @@ return function()
 		test.case("ends the round once quota is met", function()
 			local p1, d1 = newPlayerWithData(1)
 			env.players:AddPlayer(p1)
-			RoundManager._dataManager = newFakeDataManager({ [p1] = d1 })
+			RoundManager._dataManager = TestHelpers.newFakeDataManager({ [p1] = d1 })
 			RoundManager.StartRound() -- quotaTarget = 10 (1 player)
 
 			for _ = 1, 10 do
@@ -110,7 +103,7 @@ return function()
 		test.case("counts lifetime enemiesKilled even outside an active round", function()
 			local p1, d1 = newPlayerWithData(1)
 			env.players:AddPlayer(p1)
-			RoundManager._dataManager = newFakeDataManager({ [p1] = d1 })
+			RoundManager._dataManager = TestHelpers.newFakeDataManager({ [p1] = d1 })
 			RoundManager.StartRound()
 			RoundManager.EndRound("QuotaMet") -- state is now "Ended", not "Active"
 
@@ -122,10 +115,63 @@ return function()
 			env.players:RemovePlayerFromGame(p1)
 		end)
 
+		test.case("EndRound's pushed summary reports each player's kills and XP earned this round only", function()
+			local p1, d1 = newPlayerWithData(1)
+			local p2, d2 = newPlayerWithData(2)
+			env.players:AddPlayer(p1)
+			env.players:AddPlayer(p2)
+			RoundManager._dataManager = TestHelpers.newFakeDataManager({ [p1] = d1, [p2] = d2 })
+			RoundManager.StartRound()
+
+			local pushedPayloads = {}
+			env.remoteDefinitions.RoundStateUpdate.FireAllClients = function(_self, payload)
+				table.insert(pushedPayloads, payload)
+			end
+
+			RoundManager.RecordKill(p1, 10)
+			RoundManager.RecordKill(p1, 5)
+			RoundManager.RecordKill(p2, 20)
+			RoundManager.EndRound("Timeout")
+
+			local summaryPayload = pushedPayloads[#pushedPayloads]
+			check.equal(summaryPayload.reason, "Timeout")
+			check.equal(summaryPayload.summaryByPlayer[tostring(p1.UserId)].kills, 2)
+			check.equal(summaryPayload.summaryByPlayer[tostring(p1.UserId)].xpEarned, 15)
+			check.equal(summaryPayload.summaryByPlayer[tostring(p2.UserId)].kills, 1)
+			check.equal(summaryPayload.summaryByPlayer[tostring(p2.UserId)].xpEarned, 20)
+
+			env.players:RemovePlayerFromGame(p1)
+			env.players:RemovePlayerFromGame(p2)
+		end)
+
+		test.case("a player who scored no kills this round still appears in the summary at zero", function()
+			local p1, d1 = newPlayerWithData(1)
+			local p2, d2 = newPlayerWithData(2)
+			env.players:AddPlayer(p1)
+			env.players:AddPlayer(p2)
+			RoundManager._dataManager = TestHelpers.newFakeDataManager({ [p1] = d1, [p2] = d2 })
+			RoundManager.StartRound()
+
+			local pushedPayloads = {}
+			env.remoteDefinitions.RoundStateUpdate.FireAllClients = function(_self, payload)
+				table.insert(pushedPayloads, payload)
+			end
+
+			RoundManager.RecordKill(p1, 10)
+			RoundManager.EndRound("Timeout")
+
+			local summaryPayload = pushedPayloads[#pushedPayloads]
+			check.equal(summaryPayload.summaryByPlayer[tostring(p2.UserId)].kills, 0)
+			check.equal(summaryPayload.summaryByPlayer[tostring(p2.UserId)].xpEarned, 0)
+
+			env.players:RemovePlayerFromGame(p1)
+			env.players:RemovePlayerFromGame(p2)
+		end)
+
 		test.case("does not double-end an already-ended round", function()
 			local p1, d1 = newPlayerWithData(1)
 			env.players:AddPlayer(p1)
-			RoundManager._dataManager = newFakeDataManager({ [p1] = d1 })
+			RoundManager._dataManager = TestHelpers.newFakeDataManager({ [p1] = d1 })
 			RoundManager.StartRound()
 
 			RoundManager.EndRound("Timeout")

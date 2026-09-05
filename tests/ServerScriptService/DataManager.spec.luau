@@ -71,6 +71,25 @@ return function()
 			check.not_nil(table.find(reloadedData.ownedWeapons, "IronSword"))
 		end)
 
+		test.case("two different new players' nested stats tables are independent, not shared", function()
+			local playerA = FakePlayer.new(101)
+			local playerB = FakePlayer.new(102)
+			env.players:AddPlayer(playerA)
+			env.players:AddPlayer(playerB)
+
+			DataManager.LoadPlayer(playerA)
+			DataManager.LoadPlayer(playerB)
+
+			local dataA = DataManager.GetData(playerA)
+			local dataB = DataManager.GetData(playerB)
+
+			dataA.stats.enemiesKilled = 5
+			table.insert(dataA.ownedWeapons, "IronSword")
+
+			check.equal(dataB.stats.enemiesKilled, 0)
+			check.equal(#dataB.ownedWeapons, 1)
+		end)
+
 		test.case("kicks the player if the session fails to start (Cancel returns true)", function()
 			local player = FakePlayer.new(4)
 			-- Deliberately not added to env.players, so Parent stays nil —

@@ -16,14 +16,7 @@ local FakePlayer = require("../mocks/FakePlayer")
 local FakeModel = require("../mocks/FakeModel")
 local FakePart = require("../mocks/FakePart")
 local FakeHumanoid = require("../mocks/FakeHumanoid")
-
-local function newFakeDataManager(dataByPlayer)
-	return {
-		GetData = function(player)
-			return dataByPlayer[player]
-		end,
-	}
-end
+local TestHelpers = require("../mocks/TestHelpers")
 
 return function()
 	test.suite("WeaponPickupManager.HandlePlayerDeath", function()
@@ -31,7 +24,7 @@ return function()
 			local player = FakePlayer.new(1)
 			local character = player:SpawnCharacter(FakeModel, FakePart, FakeHumanoid)
 			local data = { equippedWeapon = "IronSword", ownedWeapons = { "BaseSword", "IronSword" } }
-			WeaponPickupManager._dataManager = newFakeDataManager({ [player] = data })
+			WeaponPickupManager._dataManager = TestHelpers.newFakeDataManager({ [player] = data })
 
 			WeaponPickupManager.HandlePlayerDeath(player, character)
 
@@ -42,7 +35,7 @@ return function()
 			local player = FakePlayer.new(1)
 			local character = player:SpawnCharacter(FakeModel, FakePart, FakeHumanoid)
 			local data = { equippedWeapon = "BaseSword", ownedWeapons = { "BaseSword" } }
-			WeaponPickupManager._dataManager = newFakeDataManager({ [player] = data })
+			WeaponPickupManager._dataManager = TestHelpers.newFakeDataManager({ [player] = data })
 
 			-- No assertion on world state directly (no pickup-tracking API
 			-- exposed) — this test instead documents the guard exists and
@@ -62,7 +55,7 @@ return function()
 		test.case("the player who died can reclaim their own dropped weapon", function()
 			local player = FakePlayer.new(1)
 			local data = { equippedWeapon = "BaseSword", ownedWeapons = { "BaseSword", "IronSword" } }
-			WeaponPickupManager._dataManager = newFakeDataManager({ [player] = data })
+			WeaponPickupManager._dataManager = TestHelpers.newFakeDataManager({ [player] = data })
 
 			local pickup = FakeModel.new()
 			pickup:SetAttribute("OwnerUserId", 1)
@@ -78,7 +71,7 @@ return function()
 			local owner = FakePlayer.new(1)
 			local otherPlayer = FakePlayer.new(2)
 			local otherData = { equippedWeapon = "BaseSword", ownedWeapons = { "BaseSword" } }
-			WeaponPickupManager._dataManager = newFakeDataManager({ [otherPlayer] = otherData })
+			WeaponPickupManager._dataManager = TestHelpers.newFakeDataManager({ [otherPlayer] = otherData })
 
 			local pickup = FakeModel.new()
 			pickup:SetAttribute("OwnerUserId", owner.UserId)
@@ -94,7 +87,7 @@ return function()
 		test.case("reclaiming re-adds the weapon to ownedWeapons if somehow missing", function()
 			local player = FakePlayer.new(1)
 			local data = { equippedWeapon = "BaseSword", ownedWeapons = { "BaseSword" } }
-			WeaponPickupManager._dataManager = newFakeDataManager({ [player] = data })
+			WeaponPickupManager._dataManager = TestHelpers.newFakeDataManager({ [player] = data })
 
 			local pickup = FakeModel.new()
 			pickup:SetAttribute("OwnerUserId", 1)

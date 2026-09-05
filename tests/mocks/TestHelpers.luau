@@ -1,8 +1,22 @@
--- Shared helpers for tests that need to force a specific low-probability
--- zombie weapon-variant roll (HeadThrow is 1% per spawn — see EnemyTable.lua)
--- without asserting on the RNG directly.
+-- Shared helpers used across multiple spec files: a fake DataManager builder,
+-- and forcing a specific low-probability zombie weapon-variant roll (HeadThrow
+-- is 1% per spawn — see EnemyTable.lua) without asserting on the RNG directly.
 
 local TestHelpers = {}
+
+--- Builds a fake DataManager whose GetData(player) looks up `dataByPlayer`
+--- (a table keyed by player instance). Every server module under test only
+--- calls DataManager.GetData(player) — this is the one fake needed to stand
+--- in for it everywhere. Was previously duplicated with slightly different
+--- shapes across 5 spec files; centralized here after a review found the
+--- duplication.
+function TestHelpers.newFakeDataManager(dataByPlayer)
+	return {
+		GetData = function(player)
+			return dataByPlayer[player]
+		end,
+	}
+end
 
 --- Spawns zombies via `enemySpawner` until one rolls the given variant, or
 --- gives up after `maxAttempts` and returns nil. Default maxAttempts (5000)

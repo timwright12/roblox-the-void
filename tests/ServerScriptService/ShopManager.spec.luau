@@ -13,22 +13,16 @@ local test = frktest.test
 local check = frktest.assert.check
 
 local ShopManager = RobloxEnv.requireModule("../../src/ServerScriptService/ShopManager")
-
-local function newFakeDataManager(initialData)
-	return {
-		GetData = function(player)
-			return initialData
-		end,
-	}
-end
+local TestHelpers = require("../mocks/TestHelpers")
 
 return function()
 	test.suite("ShopManager.PurchaseWeapon", function()
 		test.case("succeeds when the player has enough XP", function()
+			local player = {}
 			local data = { xp = 100, ownedWeapons = { "BaseSword" }, equippedWeapon = "BaseSword" }
-			ShopManager._dataManager = newFakeDataManager(data)
+			ShopManager._dataManager = TestHelpers.newFakeDataManager({ [player] = data })
 
-			local result = ShopManager.PurchaseWeapon({}, "IronSword")
+			local result = ShopManager.PurchaseWeapon(player, "IronSword")
 
 			check.is_true(result.success)
 			check.equal(result.newXp, 50) -- IronSword costs 50
@@ -36,10 +30,11 @@ return function()
 		end)
 
 		test.case("rejects a purchase with insufficient XP, even called directly", function()
+			local player = {}
 			local data = { xp = 10, ownedWeapons = { "BaseSword" }, equippedWeapon = "BaseSword" }
-			ShopManager._dataManager = newFakeDataManager(data)
+			ShopManager._dataManager = TestHelpers.newFakeDataManager({ [player] = data })
 
-			local result = ShopManager.PurchaseWeapon({}, "IronSword")
+			local result = ShopManager.PurchaseWeapon(player, "IronSword")
 
 			check.is_false(result.success)
 			check.equal(result.reason, "InsufficientXP")
@@ -48,10 +43,11 @@ return function()
 		end)
 
 		test.case("rejects purchasing an already-owned weapon", function()
+			local player = {}
 			local data = { xp = 100, ownedWeapons = { "BaseSword", "IronSword" }, equippedWeapon = "BaseSword" }
-			ShopManager._dataManager = newFakeDataManager(data)
+			ShopManager._dataManager = TestHelpers.newFakeDataManager({ [player] = data })
 
-			local result = ShopManager.PurchaseWeapon({}, "IronSword")
+			local result = ShopManager.PurchaseWeapon(player, "IronSword")
 
 			check.is_false(result.success)
 			check.equal(result.reason, "AlreadyOwned")
@@ -59,17 +55,18 @@ return function()
 		end)
 
 		test.case("rejects an unknown weapon id", function()
+			local player = {}
 			local data = { xp = 1000, ownedWeapons = { "BaseSword" }, equippedWeapon = "BaseSword" }
-			ShopManager._dataManager = newFakeDataManager(data)
+			ShopManager._dataManager = TestHelpers.newFakeDataManager({ [player] = data })
 
-			local result = ShopManager.PurchaseWeapon({}, "NotARealWeapon")
+			local result = ShopManager.PurchaseWeapon(player, "NotARealWeapon")
 
 			check.is_false(result.success)
 			check.equal(result.reason, "UnknownWeapon")
 		end)
 
 		test.case("rejects when the player's profile isn't loaded", function()
-			ShopManager._dataManager = { GetData = function() return nil end }
+			ShopManager._dataManager = TestHelpers.newFakeDataManager({})
 
 			local result = ShopManager.PurchaseWeapon({}, "IronSword")
 
@@ -80,28 +77,31 @@ return function()
 
 	test.suite("ShopManager.EquipWeapon", function()
 		test.case("equips a weapon the player already owns", function()
+			local player = {}
 			local data = { ownedWeapons = { "BaseSword", "Crossbow" }, equippedWeapon = "BaseSword" }
-			ShopManager._dataManager = newFakeDataManager(data)
+			ShopManager._dataManager = TestHelpers.newFakeDataManager({ [player] = data })
 
-			ShopManager.EquipWeapon({}, "Crossbow")
+			ShopManager.EquipWeapon(player, "Crossbow")
 
 			check.equal(data.equippedWeapon, "Crossbow")
 		end)
 
 		test.case("does not equip a weapon the player does not own", function()
+			local player = {}
 			local data = { ownedWeapons = { "BaseSword" }, equippedWeapon = "BaseSword" }
-			ShopManager._dataManager = newFakeDataManager(data)
+			ShopManager._dataManager = TestHelpers.newFakeDataManager({ [player] = data })
 
-			ShopManager.EquipWeapon({}, "Crossbow")
+			ShopManager.EquipWeapon(player, "Crossbow")
 
 			check.equal(data.equippedWeapon, "BaseSword")
 		end)
 
 		test.case("silently no-ops on an unknown weapon id", function()
+			local player = {}
 			local data = { ownedWeapons = { "BaseSword" }, equippedWeapon = "BaseSword" }
-			ShopManager._dataManager = newFakeDataManager(data)
+			ShopManager._dataManager = TestHelpers.newFakeDataManager({ [player] = data })
 
-			ShopManager.EquipWeapon({}, "NotARealWeapon")
+			ShopManager.EquipWeapon(player, "NotARealWeapon")
 
 			check.equal(data.equippedWeapon, "BaseSword")
 		end)

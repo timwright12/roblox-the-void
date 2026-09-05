@@ -13,6 +13,12 @@ local check = frktest.assert.check
 local EnemySpawner = RobloxEnv.requireModule("../../src/ServerScriptService/EnemySpawner")
 local TestHelpers = require("../mocks/TestHelpers")
 
+-- EnemySpawner is a cached module shared with every other spec file in this
+-- test process (Lune, like Roblox, caches by required path) — reset its
+-- live-enemy state so this file's tests aren't affected by whatever ran
+-- before it. See EnemySpawner._resetForTests's doc comment.
+EnemySpawner._resetForTests()
+
 return function()
 	test.suite("EnemySpawner.SpawnEnemy — robots", function()
 		test.case("spawns a Grunt with the correct HP and melee attackType", function()

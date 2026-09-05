@@ -36,17 +36,6 @@ function FakePlayer:SpawnCharacter(FakeModel, FakePart, FakeHumanoid)
 	local humanoid = FakeHumanoid.new()
 	character:AddChild(humanoid)
 
-	-- Match the real Instance:FindFirstChild(name) surface used by
-	-- CombatManager.getPlayerRoot — searched by Name, not just by class.
-	function character:FindFirstChild(name: string)
-		for _, child in self.children do
-			if child.Name == name then
-				return child
-			end
-		end
-		return nil
-	end
-
 	self.Character = character
 	self.CharacterAdded:Fire(character)
 	return character, rootPart, humanoid

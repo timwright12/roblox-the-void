@@ -142,6 +142,17 @@ function EnemySpawner.GetLiveEnemyCount()
 	return count
 end
 
+--- Clears all live-enemy state and resets the id counter. Test-only: a real
+--- Roblox server never needs to reset this at runtime. Exists because Lune
+--- (like Roblox) caches a required module, so every spec file that requires
+--- EnemySpawner in the same `tests/_run.luau` process shares this module's
+--- upvalues — without a reset, enemies spawned by one spec file's tests stay
+--- "live" when a later spec file's tests run.
+function EnemySpawner._resetForTests()
+	nextEnemyId = 0
+	liveEnemies = {}
+end
+
 --- Phase 1 bootstrap: spawns a fixed set of Grunt robots at hardcoded points.
 --- Real spawn-point placement happens against the finished map in Phase 4.
 function EnemySpawner.StartPhase1Spawns()

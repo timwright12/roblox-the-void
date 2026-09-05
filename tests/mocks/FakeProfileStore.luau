@@ -16,6 +16,23 @@ local Signal = require("./Signal")
 local FakeProfileStore = {}
 FakeProfileStore.__index = FakeProfileStore
 
+--- Recursively clones a table so nested tables (e.g. PROFILE_TEMPLATE.stats)
+--- aren't shared by reference across profiles. table.clone is shallow, which
+--- would otherwise leave every never-before-seen profile key pointing at the
+--- exact same `stats`/`ownedWeapons` table as the template and every other
+--- profile — mutating one player's data would silently corrupt another's.
+local function deepClone(value)
+	if type(value) ~= "table" then
+		return value
+	end
+
+	local copy = {}
+	for key, subValue in value do
+		copy[key] = deepClone(subValue)
+	end
+	return copy
+end
+
 function FakeProfileStore.New(_storeName: string, template)
 	local store = setmetatable({
 		_template = template,
@@ -31,7 +48,7 @@ function FakeProfileStore:StartSessionAsync(profileKey: string, params)
 	end
 
 	if not self._dataByKey[profileKey] then
-		self._dataByKey[profileKey] = table.clone(self._template)
+		self._dataByKey[profileKey] = deepClone(self._template)
 	end
 
 	local template = self._template
@@ -46,7 +63,7 @@ function FakeProfileStore:StartSessionAsync(profileKey: string, params)
 	function profile:Reconcile()
 		for key, value in template do
 			if self.Data[key] == nil then
-				self.Data[key] = value
+				self.Data[key] = deepClone(value)
 			end
 		end
 	end

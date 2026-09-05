@@ -2,9 +2,10 @@
 -- game code under test actually calls: Name, PrimaryPart, SetPrimaryPartCFrame
 -- (records the CFrame and updates PrimaryPart.Position to match, since that's
 -- all the real engine call is used for here), SetAttribute/GetAttribute,
--- FindFirstChildOfClass (searches children added via the `children` field),
--- Destroy (sets Parent to nil, matching what CombatManager checks to detect a
--- zombie destroyed mid wind-up), and Parent.
+-- FindFirstChildOfClass/FindFirstChild (search children added via the
+-- `children` field, by class or by Name respectively), Destroy (sets Parent
+-- to nil, matching what CombatManager checks to detect a zombie destroyed mid
+-- wind-up), and Parent.
 
 local FakeModel = {}
 FakeModel.__index = FakeModel
@@ -40,6 +41,15 @@ end
 function FakeModel:FindFirstChildOfClass(className: string)
 	for _, child in self.children do
 		if child._className == className then
+			return child
+		end
+	end
+	return nil
+end
+
+function FakeModel:FindFirstChild(name: string)
+	for _, child in self.children do
+		if child.Name == name then
 			return child
 		end
 	end

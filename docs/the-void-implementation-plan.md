@@ -219,7 +219,7 @@ Tasks:
 - Actively look for degenerate strategies: is always-saving-XP-for-levels or always-buying-weapons strictly dominant? Adjust weapon costs/power if so.
 
 Acceptance criteria:
-- No single strategy (pure-save vs. pure-spend) is obviously optimal in playtesting feedback.
+- No single strategy (pure-save vs. pure-spend) is favored in playtesting feedback.
 - Round completion rate (quota met before timeout) sits in a target healthy range — recommend defining this target explicitly before tuning (e.g., 70-85% of rounds complete successfully) rather than tuning blind.
 - Playtesters report the head-thrower as a tense/dangerous encounter, not a random unavoidable death — capture this feedback explicitly, don't infer it from other metrics.
 
@@ -275,6 +275,8 @@ Coverage: `XPManager`, `ShopManager`, `RoundManager`, `EnemySpawner`, `CombatMan
 - `CombatManager.Init`/`RoundManager.Init` each start an infinite `task.spawn` polling loop, which has no natural exit under Lune (a real Roblox server just runs forever, so this was never a problem in production). Tests never call `.Init()` — they set the same fields `Init()` would set directly, and call the underlying logic functions (`HandleAttackIntent`, `_tickOneEnemyAttack`, `RecordKill`, etc.) directly instead.
 - `@lune/roblox`'s `Instance.new` does not simulate `Humanoid`-specific behavior (`TakeDamage`, `.Died` firing) — `tests/mocks/FakeHumanoid.luau` implements exactly that surface as a hand-built fake, not a real Roblox Humanoid.
 - Globally reassigning Luau's `require` function breaks relative-path resolution for *other* unrelated `require()` calls happening anywhere else in the process (confirmed by direct experiment) — so the fake-module-unwrapping trick used to satisfy `require(ReplicatedStorage.Data.EnemyTable)`-style calls is scoped narrowly to the exact duration of loading one production module (`RobloxEnv.requireModule`), not left on globally.
+- A handful of tests use real `task.wait()` sleeps (e.g. waiting out a weapon cooldown or a zombie's wind-up) rather than a fake/advanceable clock, since `CombatManager`/`RoundManager`/`EnemySpawner` read wall-clock time directly (`os.clock()`) rather than through an injectable clock dependency. This makes those specific tests slightly slower and, in principle, sensitive to extreme system load — accepted as disproportionate to fix (would mean adding a clock abstraction to production code) given the suite has been stress-tested (dozens of consecutive clean runs) with no observed flakiness from this cause.
+- `EnemySpawner` keeps its live-enemy state as module-level upvalues, and Lune (like Roblox) caches a required module — so every spec file in the same test process shares the same `EnemySpawner` instance. `EnemySpawner._resetForTests()` (test-only; a real server never calls it) clears that state and is called once at the top of every spec file that requires `EnemySpawner`, so one file's spawned enemies can't leak into another's assertions.
 
 ## 8. Release / Deployment Plan
 

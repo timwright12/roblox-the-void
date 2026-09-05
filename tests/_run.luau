@@ -2,14 +2,30 @@
 -- See DevPackages/_Index/itsfrank_frktest@0.0.2/frktest/examples/_run.luau
 -- for the pattern this follows.
 
+local fs = require("@lune/fs")
+
+-- Scans tests/ServerScriptService for *.spec.luau files and requires each
+-- one, rather than a hardcoded list — a forgotten update to a hardcoded list
+-- would silently skip a new spec file's tests entirely, with no error to
+-- signal the gap.
+--
+-- fs.readDir needs a real filesystem path, which (unlike require) is
+-- resolved relative to the process's cwd, not this script's location — so
+-- this derives the spec directory from this script's own path
+-- (debug.info(1, "s"), e.g. ".../tests/_run") rather than assuming the
+-- process was launched from the repo root.
 local function loadTests()
-	require("./ServerScriptService/XPManager.spec")()
-	require("./ServerScriptService/ShopManager.spec")()
-	require("./ServerScriptService/RoundManager.spec")()
-	require("./ServerScriptService/EnemySpawner.spec")()
-	require("./ServerScriptService/CombatManager.spec")()
-	require("./ServerScriptService/WeaponPickupManager.spec")()
-	require("./ServerScriptService/DataManager.spec")()
+	local thisScriptPath = debug.info(1, "s")
+	local testsDir = thisScriptPath:match("^(.*)/_run$")
+	assert(testsDir, `could not determine tests/ directory from script path "{thisScriptPath}"`)
+
+	local specDir = `{testsDir}/ServerScriptService`
+	for _, fileName in fs.readDir(specDir) do
+		local moduleName = fileName:match("^(.*)%.luau$")
+		if moduleName then
+			require(`./ServerScriptService/{moduleName}`)()
+		end
+	end
 end
 
 local function runTests()

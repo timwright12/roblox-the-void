@@ -28,6 +28,12 @@ local FakePart = require("../mocks/FakePart")
 local FakeHumanoid = require("../mocks/FakeHumanoid")
 local TestHelpers = require("../mocks/TestHelpers")
 
+-- EnemySpawner is a cached module shared with every other spec file in this
+-- test process — reset its live-enemy state so this file's tests aren't
+-- affected by whatever ran before it. See EnemySpawner._resetForTests's doc
+-- comment.
+EnemySpawner._resetForTests()
+
 -- Resets the fake Players service before adding the new player, so leftover
 -- players (and their positions) from a previous test case in this file never
 -- leak into findNearestPlayerInRange's "nearest" search.
@@ -40,19 +46,11 @@ local function newPlayerAt(userId: number, position)
 	return player
 end
 
-local function newFakeDataManager(dataByPlayer)
-	return {
-		GetData = function(player)
-			return dataByPlayer[player]
-		end,
-	}
-end
-
 local function wireCombatManager(dataByPlayer)
 	local killedPlayers = {}
 	local xpAwardedTo = {}
 
-	local dataManager = newFakeDataManager(dataByPlayer)
+	local dataManager = TestHelpers.newFakeDataManager(dataByPlayer)
 	XPManager.Init(dataManager)
 
 	local roundManager = {
@@ -106,6 +104,27 @@ return function()
 			check.is_true(ok1)
 			check.is_false(ok2)
 			check.equal(reason2, "OnCooldown")
+		end)
+
+		test.case("RemovePlayer clears the attack cooldown so a rejoining player isn't stuck on it", function()
+			local data = { equippedWeapon = "BaseSword", level = 1, xp = 0, totalXp = 0 }
+			local player = newPlayerAt(1, Vector3.new(0, 0, 0))
+			wireCombatManager({ [player] = data })
+
+			local enemyId = EnemySpawner.SpawnEnemy("Grunt", CFrame.new(0, 0, 0))
+			local ok1 = CombatManager.HandleAttackIntent(player, enemyId)
+			check.is_true(ok1)
+
+			CombatManager.RemovePlayer(player)
+
+			-- Without RemovePlayer clearing lastAttackAt, this second attack
+			-- (against a different enemy, no time elapsed) would be rejected
+			-- as "OnCooldown" — the exact leak this method exists to prevent.
+			local otherEnemyId = EnemySpawner.SpawnEnemy("Grunt", CFrame.new(0, 0, 0))
+			local ok2, reason2 = CombatManager.HandleAttackIntent(player, otherEnemyId)
+
+			check.is_true(ok2)
+			check.equal(reason2, nil)
 		end)
 
 		test.case("applies the equipped weapon's damage, not a hardcoded value", function()
