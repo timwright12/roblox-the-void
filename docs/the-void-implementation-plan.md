@@ -1,0 +1,253 @@
+# The Void — Implementation Plan (for build execution)
+
+This document assumes the product brief (`the-void-product-brief.md`) as the source of truth for design decisions. It translates those decisions into a concrete build plan: project structure, data schemas, module responsibilities, network contracts, and a phase-by-phase task list with acceptance criteria. It's written so a Claude session picking this up cold can start building without needing to re-derive design intent.
+
+## 0. Confirmed Design Decisions (do not re-litigate these)
+
+- Free-to-play, no monetization at launch.
+- PvE only, no PvP.
+- Round-based (not persistent world).
+- 100 XP flat per level, no level cap.
+- Spending XP on weapons delays leveling (same XP pool, no separate currency).
+- Round win condition: quota-based, per-player kill target scaled to team size, plus a backstop timer.
+- Team size target: 5–10 players per round.
+- Death penalty: drop equipped weapon at death location as a world pickup; respawn with base weapon; no XP loss. **Pickup is player-locked — only the player who died can reclaim it. Other players cannot pick it up.**
+- Weapon rollout: build 3 weapons first (Phase 2), expand to 6+ after playtesting (Phase 5).
+- Robots: at least 3 tiers (Scout / Grunt / Heavy) by size, HP, damage, speed, XP reward.
+- Zombies: a second enemy family alongside robots, sharing the same enemy data table and spawner. Base zombie is melee-only; weapon variant (punch/sword/head-thrower) is rolled once at spawn time and fixed for that zombie's lifetime. Head-thrower is a 1% spawn chance, ranged, telegraphed (~1s wind-up), and instant-kills any player caught in its explosion splash radius on landing — this bypasses normal damage rolls. Death from a head-thrower explosion uses the same death penalty as any other death (no special-case handling).
+- Map: single dense forest, sized for 5–10 players, with terrain landmarks to aid navigation.
+
+If anything in this plan conflicts with the brief, the brief wins — flag the conflict rather than silently picking one.
+
+## 1. Recommended Tooling & Project Structure
+
+Build with **Rojo** so code lives in a normal file tree and can be version-controlled, rather than authoring everything inside Roblox Studio's built-in editor.
+
+```
+the-void/
+├── default.project.json
+├── src/
+│   ├── ServerScriptService/
+│   │   ├── EnemySpawner.lua
+│   │   ├── CombatManager.lua
+│   │   ├── XPManager.lua
+│   │   ├── ShopManager.lua
+│   │   ├── RoundManager.lua
+│   │   ├── WeaponPickupManager.lua
+│   │   └── DataManager.lua
+│   ├── ReplicatedStorage/
+│   │   ├── Remotes/
+│   │   │   └── RemoteDefinitions.lua
+│   │   ├── Data/
+│   │   │   ├── WeaponTable.lua
+│   │   │   └── EnemyTable.lua
+│   │   └── Modules/
+│   │       └── (shared utility modules, e.g. Signal, TableUtil)
+│   ├── StarterPlayer/
+│   │   └── StarterPlayerScripts/
+│   │       ├── CombatController.client.lua
+│   │       ├── ShopUIController.client.lua
+│   │       └── HUDController.client.lua
+│   └── StarterGui/
+│       └── (UI screens: HUD, Shop, RoundEnd)
+```
+
+If Rojo isn't already set up in the target environment, that's the first task — don't build inside Studio's default script objects, since it doesn't diff or version well.
+
+## 2. Data Schemas
+
+### 2.1 Player Persistent Data (DataStore)
+
+```lua
+-- Stored per player, keyed by UserId
+{
+    level = 1,
+    xp = 0,               -- current banked XP toward next level (0-99, resets on level-up)
+    totalXp = 0,           -- lifetime XP earned, for stats/analytics, never decreases
+    ownedWeapons = {"BaseSword"},  -- array of weapon ids the player has purchased
+    equippedWeapon = "BaseSword",
+    stats = {
+        roundsPlayed = 0,
+        enemiesKilled = 0,
+        deaths = 0,
+    },
+    dataVersion = 1,       -- for future migration handling
+}
+```
+
+Notes for the implementer:
+- `xp` is the spendable/level-progress pool. `totalXp` is a separate lifetime counter — never let the two get confused, since `xp` decreases on weapon purchase but `totalXp` must not.
+- Save on: player leaving, every ~2 minutes during play, and on round end. Wrap all DataStore calls with retry logic (exponential backoff, max 3-5 attempts) and never let a failed save silently swallow player progress — log it.
+
+### 2.2 Weapon Table (ReplicatedStorage/Data/WeaponTable.lua)
+
+```lua
+return {
+    BaseSword = { name = "Base Sword", cost = 0, damage = 10, fireRate = 1.0, range = 5, tier = 0 },
+    IronSword = { name = "Iron Sword", cost = 50, damage = 18, fireRate = 1.0, range = 5, tier = 1 },
+    Crossbow  = { name = "Crossbow",   cost = 80, damage = 25, fireRate = 0.7, range = 30, tier = 1 },
+    -- Expand to 6+ in Phase 5. Keep this table as the single source of truth
+    -- referenced by both shop UI and combat damage calculation.
+}
+```
+
+### 2.3 Enemy Table (ReplicatedStorage/Data/EnemyTable.lua)
+
+Covers both robots and zombies. Every entry has an `enemyType` field (`"robot"` or `"zombie"`) so spawner/combat code can branch on category where needed. Zombies additionally carry a `weaponVariants` table: on spawn, `EnemySpawner` rolls a variant per the listed `spawnChance` weights (weights sum to 1.0) and that variant is fixed for the zombie's lifetime.
+
+```lua
+return {
+    Scout = { hp = 20, damage = 5,  speed = 20, xpReward = 5,  modelName = "ScoutRobot", enemyType = "robot" },
+    Grunt = { hp = 60, damage = 12, speed = 12, xpReward = 12, modelName = "GruntRobot", enemyType = "robot" },
+    Heavy = { hp = 150, damage = 25, speed = 6, xpReward = 30, modelName = "HeavyRobot", enemyType = "robot" },
+
+    Zombie = {
+        hp = 40, speed = 14, modelName = "ZombieBase", enemyType = "zombie",
+        -- Base damage/xpReward are overridden per-variant below; keep these as sane fallbacks only.
+        damage = 8, xpReward = 8,
+        weaponVariants = {
+            Punch     = { spawnChance = 0.80, damage = 8,  xpReward = 8,  attackType = "melee" },
+            Sword     = { spawnChance = 0.19, damage = 16, xpReward = 14, attackType = "melee" },
+            HeadThrow = {
+                spawnChance = 0.01,
+                xpReward = 25,
+                attackType = "projectileInstantKillSplash",
+                windUpSeconds = 1.0,       -- telegraph duration before the head is thrown
+                splashRadius = 8,          -- studs; anyone inside on impact is instant-killed
+                -- No `damage` field: this attack bypasses HP/damage rolls entirely on splash contact.
+            },
+        },
+    },
+}
+```
+
+## 3. Module Responsibilities
+
+| Module | Location | Responsibility |
+|---|---|---|
+| `DataManager` | Server | Load/save player data via DataStore, expose get/set API to other server modules. Single owner of DataStore access — nothing else touches DataStore directly. |
+| `XPManager` | Server | Award XP on enemy kill, handle level-up math, fire client-facing updates. Owns the `xp`/`totalXp`/`level` fields. |
+| `ShopManager` | Server | Validate and process weapon purchase requests: check XP balance, deduct XP, add to `ownedWeapons`, set `equippedWeapon`. Rejects purchases server-side even if client UI misbehaves. |
+| `CombatManager` | Server | Authoritative damage resolution for player-vs-enemy hits, for both robots and zombies. Client sends attack *intent*, server validates range/cooldown and applies damage. Also owns the zombie head-thrower projectile: server rolls/tracks the variant at spawn (via `EnemySpawner`), runs the telegraph timer, spawns the head projectile, and on impact resolves the splash radius as an instant kill (bypassing normal damage rolls) for any player caught inside it. |
+| `EnemySpawner` | Server | Spawns robots and zombies by tier/type at spawn points, rolls a zombie's weapon variant (punch/sword/head-thrower) once at spawn time per `EnemyTable` odds, respawns on timer, tracks live enemy count for quota purposes. |
+| `RoundManager` | Server | Round lifecycle: lobby → start → track quota progress → end (win or timeout) → return to lobby. Calculates per-player quota scaled to team size at round start. Quota counts kills of any enemy type (robot or zombie). |
+| `WeaponPickupManager` | Server | On player death, spawns a physical weapon pickup at death location, reverts player to base weapon; handles pickup interaction. |
+| `RemoteDefinitions` | Shared | Single place declaring every RemoteEvent/RemoteFunction so client and server reference the same names — avoids typo mismatches. |
+| `CombatController` | Client | Reads player input, sends attack intent to server, plays local hit feedback/animation (cosmetic only — never trusted for damage). |
+| `ShopUIController` | Client | Renders shop menu from `WeaponTable`, sends purchase requests, reflects server-confirmed state (don't optimistically show a purchase as successful before server confirms). |
+| `HUDController` | Client | Displays XP/level/quota progress/round timer from server-pushed state. |
+
+## 4. Network Contract (RemoteEvents / RemoteFunctions)
+
+Define all of these in `RemoteDefinitions.lua` so both sides reference the same objects.
+
+| Name | Type | Direction | Payload | Purpose |
+|---|---|---|---|---|
+| `AttackIntent` | RemoteEvent | Client → Server | `{ targetEnemyId }` | Player attempts to hit an enemy (robot or zombie); server validates range/cooldown/damage. |
+| `EnemyKilled` | RemoteEvent | Server → Client | `{ enemyId, enemyType, xpAwarded, newXp, newLevel }` | Notify client of a kill for UI/feedback. |
+| `ZombieHeadThrowTelegraph` | RemoteEvent | Server → Client | `{ zombieId, windUpSeconds }` | Fired when a head-thrower zombie begins its wind-up, so clients can play the detach animation/warning cue during the telegraph window. |
+| `PurchaseWeapon` | RemoteFunction | Client → Server | `{ weaponId }` → returns `{ success, reason?, newXp?, ownedWeapons? }` | Shop purchase request; server is sole authority on success/failure. |
+| `EquipWeapon` | RemoteEvent | Client → Server | `{ weaponId }` | Switch equipped weapon among owned weapons (no XP cost). |
+| `RoundStateUpdate` | RemoteEvent | Server → Client | `{ state, quotaTarget, quotaProgress, timeRemaining }` | Push round lobby/active/ended state and progress to all clients in the round. |
+| `PlayerDied` | RemoteEvent | Server → Client | `{ droppedWeaponId, respawnWeaponId, causeOfDeath }` | Inform client of death consequences for UI messaging. `causeOfDeath` includes the head-thrower splash case so the client can show appropriate feedback, but the death penalty itself does not vary by cause. |
+| `RequestPlayerState` | RemoteFunction | Client → Server | none → returns full player data snapshot | Used on join/UI open to sync client state without guessing. |
+
+## 5. Phase-by-Phase Task List with Acceptance Criteria
+
+### Phase 1 — Core Loop Prototype
+Tasks:
+- Set up Rojo project structure as in Section 1.
+- Greybox forest map: open area with basic tree placeholders, no art pass yet.
+- Implement `EnemySpawner` with a single robot type (use Grunt stats) spawning at 2-3 fixed points.
+- Implement `CombatManager`: server-validated melee attack, damage, robot death.
+- Implement `XPManager`: award XP on kill, flat 100/level math, level-up event.
+- Minimal HUD showing current XP and level (no styling needed).
+
+Acceptance criteria:
+- A player can walk up to a robot, attack it, kill it, and see XP/level update, with all damage/XP calculated server-side (verify by checking server output, not just client display).
+- Killing a robot causes it to respawn after a fixed delay.
+
+### Phase 2 — Progression & Shop
+Tasks:
+- Add Scout and Heavy robot tiers using `EnemyTable` stats.
+- Add base zombie enemy type using `EnemyTable` stats: melee-only for this phase (punch/sword variants), rolled at spawn per the `weaponVariants.spawnChance` weights. **Defer the head-thrower variant to a follow-up task in this same phase** once punch/sword zombies are confirmed working end-to-end (spawn → combat → death → XP), since the head-thrower needs new projectile/splash-kill logic in `CombatManager` that the other variants don't.
+- Implement the head-thrower zombie variant: wind-up telegraph (fire `ZombieHeadThrowTelegraph`), thrown head projectile, splash-radius impact resolution as an instant kill bypassing normal damage, normal death penalty on kill (no special-casing in `WeaponPickupManager`/death flow).
+- Build `ShopManager` and shop UI with 3 starter weapons from `WeaponTable`.
+- Wire `PurchaseWeapon` RemoteFunction: server validates XP balance, deducts, updates `ownedWeapons`/`equippedWeapon`.
+- Make equipped weapon actually change `CombatManager` damage/fire rate/range values used in combat.
+- Build `WeaponPickupManager`: on death, drop equipped weapon as a pickup, revert to base weapon on respawn. Pickup is player-locked (only the player who died can interact with/reclaim it — no other player can pick it up).
+- Integrate `DataManager` with real DataStore calls (not just in-memory); verify data survives a server restart / rejoin.
+
+Acceptance criteria:
+- Purchasing a weapon with insufficient XP is rejected server-side even if attempted directly via a spoofed remote call.
+- Player who dies drops their weapon, can walk back and pick it up, and it reappears in `ownedWeapons`/becomes equippable again (decide and implement: does the pickup have a despawn timer? Recommend yes, ~60-90 seconds, so death sites don't accumulate forever — flag this to the design owner if not already decided).
+- Rejoining after leaving restores level, XP, and owned weapons correctly.
+- Spawning a large sample of zombies (e.g. 1000 in a test script) produces variant odds statistically close to 80/19/1 — verifies the spawn-time roll, not just that all three variants exist.
+- A player caught in a head-thrower's splash radius dies instantly regardless of current HP/weapon, confirmed server-side; a player who moves out of range during the ~1s wind-up survives.
+- Head-thrower death applies the same drop-weapon/respawn-base/no-XP-loss penalty as any other death.
+
+### Phase 3 — Rounds & Social
+Tasks:
+- Build `RoundManager`: lobby state, round start, quota calculation `(quotaPerPlayer * playerCount)`, round end on quota-met or timer expiry.
+- Push `RoundStateUpdate` to clients for HUD display of quota progress and time remaining.
+- Verify friend-join behavior: confirm Roblox's native "Join" via friends list places joining players into the same server, and if mid-round, into the same round state (not a stale lobby).
+- End-of-round summary UI (kills, XP earned this round, quota result).
+
+Acceptance criteria:
+- A round with 5 players and a round with 10 players both feel appropriately challenging — i.e., the per-player quota scaling actually produces comparable difficulty (this needs at least manual dual-test, ideally with bots or multiple test accounts).
+- A friend joining via Roblox's friend-join lands in the same active round, not a separate server instance.
+
+### Phase 4 — Forest Map Polish
+Tasks:
+- Full art pass on forest environment: dense tree/foliage placement, terrain variation, 2-3 landmarks for navigation.
+- Tune robot and zombie spawn point placement against the finished map geometry (sightline breaks, search pacing).
+- Confirm map performance (part count, collision complexity) holds up with 10 concurrent players plus robots and zombies.
+
+Acceptance criteria:
+- Manual playtest: a solo player cannot see all enemies from spawn; finding robots and zombies requires actual exploration.
+- Frame rate / server step time stays acceptable at target player + enemy count (define a concrete threshold if the target platform is known, e.g., mobile — flag if this needs a specific FPS target from the design owner).
+
+### Phase 5 — Playtesting & Tuning
+Tasks:
+- Expand `WeaponTable` from 3 to 6+ weapons; balance pass on damage/fireRate/range/cost.
+- Tune quota-per-player value based on Phase 3/4 playtesting data.
+- Tune robot difficulty (HP/damage) and respawn timers based on observed kill rates.
+- Tune zombie punch/sword damage and respawn timers based on observed kill rates.
+- Playtest the head-thrower variant specifically for fairness: confirm the ~1s telegraph is readable in the finished game (animation + audio cue) and gives players a genuine chance to react. Adjust `windUpSeconds`, `splashRadius`, or the 1% spawn odds if it's landing as "unavoidable" rather than "dangerous" (see risk in product brief Section 8).
+- Actively look for degenerate strategies: is always-saving-XP-for-levels or always-buying-weapons strictly dominant? Adjust weapon costs/power if so.
+
+Acceptance criteria:
+- No single strategy (pure-save vs. pure-spend) is obviously optimal in playtesting feedback.
+- Round completion rate (quota met before timeout) sits in a target healthy range — recommend defining this target explicitly before tuning (e.g., 70-85% of rounds complete successfully) rather than tuning blind.
+- Playtesters report the head-thrower as a tense/dangerous encounter, not a random unavoidable death — capture this feedback explicitly, don't infer it from other metrics.
+
+### Phase 6 — Launch Prep
+Tasks:
+- Server load test: simulate 10 players + full robot and zombie spawn load, watch for script performance issues.
+- DataStore failure handling: simulate DataStore outage, confirm player data isn't silently lost (retry queue, or at minimum clear error logging).
+- Add lightweight analytics events: round start/end, completion vs timeout, average session length, per-weapon purchase frequency (useful data for future weapon balance and potential monetization decisions, even though monetization is out of scope for v1).
+- Final QA pass across all phases' acceptance criteria before publishing.
+
+Acceptance criteria:
+- All previous phase acceptance criteria still pass after integration.
+- No unhandled errors in server output during a full simulated round with max players.
+
+## 6. Items Left to Implementer Discretion (not blocking, but call these out when reached)
+
+- Exact weapon pickup despawn timer (Phase 2) — recommend 60-90s, confirm with design owner if precision matters.
+- Concrete FPS/performance target for the finished map (Phase 4) — depends on target device mix (PC/mobile/console), not yet specified.
+- Target round-completion rate for quota tuning (Phase 5) — recommend defining a number rather than tuning by feel.
+- Robot HP/damage and weapon damage values in Sections 2.2/2.3 are placeholder starting numbers, not final balance — real tuning happens in Phase 5 against actual playtest data.
+- Zombie base HP/speed and punch/sword damage values in Section 2.3 are placeholder starting numbers — same Phase 5 tuning treatment as robots.
+- Exact head-thrower `windUpSeconds` and `splashRadius` values in Section 2.3 are starting points for playtesting, not final balance — expect these to change based on Phase 5 fairness feedback specifically (see product brief Section 8 risk).
+
+## 7. Testing Checklist (run before considering any phase "done")
+
+- [ ] All damage/XP/purchase logic verified server-authoritative (attempt to call remotes with invalid/spoofed data and confirm server rejects).
+- [ ] DataStore save/load verified across a server restart, not just in the same session.
+- [ ] Round quota scaling manually verified at both ends of the 5-10 player range.
+- [ ] Friend-join tested with at least two real accounts, not assumed from documentation.
+- [ ] No client-trusted values used for anything that affects XP, level, or ownership.
+- [ ] Zombie weapon-variant spawn odds verified statistically (not just "all three variants appeared once").
+- [ ] Head-thrower instant-kill splash verified server-authoritative: a client cannot claim survival if server-side splash logic says otherwise, and vice versa.
+- [ ] Head-thrower death confirmed to apply the same death penalty path as every other death cause (no divergent code path skipped in testing).
