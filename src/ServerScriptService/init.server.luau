@@ -13,9 +13,11 @@ local XPManager = require(script.XPManager)
 local CombatManager = require(script.CombatManager)
 local ShopManager = require(script.ShopManager)
 local WeaponPickupManager = require(script.WeaponPickupManager)
+local RoundManager = require(script.RoundManager)
 
 XPManager.Init(DataManager)
-CombatManager.Init(EnemySpawner, XPManager, DataManager)
+RoundManager.Init(DataManager)
+CombatManager.Init(EnemySpawner, XPManager, DataManager, RoundManager)
 ShopManager.Init(DataManager)
 WeaponPickupManager.Init(DataManager)
 

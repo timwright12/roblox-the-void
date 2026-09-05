@@ -32,12 +32,13 @@ local lastAttackAt = {}
 local lastEnemyAttackAt = {}
 local pendingHeadThrows = {}
 
---- Wires the module up against a live EnemySpawner, XPManager, and
---- DataManager. Called once at server startup.
-function CombatManager.Init(enemySpawner, xpManager, dataManager)
+--- Wires the module up against a live EnemySpawner, XPManager, DataManager,
+--- and RoundManager. Called once at server startup.
+function CombatManager.Init(enemySpawner, xpManager, dataManager, roundManager)
 	CombatManager._enemySpawner = enemySpawner
 	CombatManager._xpManager = xpManager
 	CombatManager._dataManager = dataManager
+	CombatManager._roundManager = roundManager
 
 	RemoteDefinitions.AttackIntent.OnServerEvent:Connect(function(player, enemyId)
 		CombatManager.HandleAttackIntent(player, enemyId)
@@ -237,6 +238,8 @@ function CombatManager.HandleAttackIntent(player: Player, enemyId: number): (boo
 
 		local xpManager = CombatManager._xpManager
 		local newState = xpManager.AwardXP(player, enemy.xpReward)
+
+		CombatManager._roundManager.RecordKill(player, enemy.xpReward)
 
 		if newState then
 			RemoteDefinitions.EnemyKilled:FireClient(player, {

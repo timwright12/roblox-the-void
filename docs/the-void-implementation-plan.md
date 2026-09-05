@@ -150,7 +150,7 @@ Define all of these in `RemoteDefinitions.lua` so both sides reference the same 
 | `ZombieHeadThrowTelegraph` | RemoteEvent | Server → Client | `{ zombieId, windUpSeconds }` | Fired when a head-thrower zombie begins its wind-up, so clients can play the detach animation/warning cue during the telegraph window. |
 | `PurchaseWeapon` | RemoteFunction | Client → Server | `{ weaponId }` → returns `{ success, reason?, newXp?, ownedWeapons? }` | Shop purchase request; server is sole authority on success/failure. |
 | `EquipWeapon` | RemoteEvent | Client → Server | `{ weaponId }` | Switch equipped weapon among owned weapons (no XP cost). |
-| `RoundStateUpdate` | RemoteEvent | Server → Client | `{ state, quotaTarget, quotaProgress, timeRemaining }` | Push round lobby/active/ended state and progress to all clients in the round. |
+| `RoundStateUpdate` | RemoteEvent | Server → Client | `{ state, quotaTarget, quotaProgress, timeRemaining, reason?, summaryByPlayer? }` | Push round lobby/active/ended state and progress to all clients in the round. `reason` (`"QuotaMet"` \| `"Timeout"`) and `summaryByPlayer` (keyed by `tostring(UserId)`, each `{ kills, xpEarned }` for that round) are only present when `state == "Ended"` — added in Phase 3 to carry the end-of-round summary without a separate remote. |
 | `PlayerDied` | RemoteEvent | Server → Client | `{ droppedWeaponId, respawnWeaponId, causeOfDeath }` | Inform client of death consequences for UI messaging. `causeOfDeath` includes the head-thrower splash case so the client can show appropriate feedback, but the death penalty itself does not vary by cause. |
 | `RequestPlayerState` | RemoteFunction | Client → Server | none → returns full player data snapshot | Used on join/UI open to sync client state without guessing. |
 
@@ -190,14 +190,14 @@ Acceptance criteria:
 
 ### Phase 3 — Rounds & Social
 Tasks:
-- Build `RoundManager`: lobby state, round start, quota calculation `(quotaPerPlayer * playerCount)`, round end on quota-met or timer expiry.
-- Push `RoundStateUpdate` to clients for HUD display of quota progress and time remaining.
-- Verify friend-join behavior: confirm Roblox's native "Join" via friends list places joining players into the same server, and if mid-round, into the same round state (not a stale lobby).
-- End-of-round summary UI (kills, XP earned this round, quota result).
+- Build `RoundManager`: lobby state, round start, quota calculation `(quotaPerPlayer * playerCount)`, round end on quota-met or timer expiry. **Implemented** — `quotaPerPlayer = 10`, backstop timer = 10 minutes (starting placeholders, confirmed with design owner; real tuning is Phase 5).
+- Push `RoundStateUpdate` to clients for HUD display of quota progress and time remaining. **Implemented** — pushed every second while active, plus immediately on any state transition. A player joining mid-round receives current state via this same periodic push (no separate "current state" remote needed — worst case is a ~1s delay before their HUD reflects live round state).
+- Verify friend-join behavior: confirm Roblox's native "Join" via friends list places joining players into the same server, and if mid-round, into the same round state (not a stale lobby). **Not verifiable from a code session** — this requires a published place and at least two real Roblox accounts testing live. No code in this project alters or interferes with Roblox's default friend-join behavior (no reserved servers/teleport logic exists), so this should work by default, but it must still be manually confirmed per the acceptance criteria below before considering Phase 3 done.
+- End-of-round summary UI (kills, XP earned this round, quota result). **Implemented** — `RoundStateUpdate`'s payload gained optional `reason`/`summaryByPlayer` fields present only when `state == "Ended"` (see Section 4) rather than a new remote.
 
 Acceptance criteria:
-- A round with 5 players and a round with 10 players both feel appropriately challenging — i.e., the per-player quota scaling actually produces comparable difficulty (this needs at least manual dual-test, ideally with bots or multiple test accounts).
-- A friend joining via Roblox's friend-join lands in the same active round, not a separate server instance.
+- A round with 5 players and a round with 10 players both feel appropriately challenging — i.e., the per-player quota scaling actually produces comparable difficulty (this needs at least manual dual-test, ideally with bots or multiple test accounts). **Not verifiable from a code session — requires live playtesting.**
+- A friend joining via Roblox's friend-join lands in the same active round, not a separate server instance. **Not verifiable from a code session — requires a published place and two real accounts.**
 
 ### Phase 4 — Forest Map Polish
 Tasks:
