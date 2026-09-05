@@ -23,6 +23,7 @@ local check = frktest.assert.check
 local DataManager = RobloxEnv.requireModule("../../src/ServerScriptService/DataManager")
 
 local FakePlayer = require("../mocks/FakePlayer")
+local TestHelpers = require("../mocks/TestHelpers")
 
 return function()
 	test.suite("DataManager.LoadPlayer / GetData", function()
@@ -123,6 +124,35 @@ return function()
 			end)
 
 			check.is_true(ok)
+		end)
+
+		test.case("logs a SessionEnded analytics event with a non-negative duration", function()
+			local player = FakePlayer.new(7)
+			env.players:AddPlayer(player)
+			local analytics, calls = TestHelpers.newFakeAnalytics()
+			DataManager._analytics = analytics
+			DataManager.LoadPlayer(player)
+
+			DataManager.RemovePlayer(player)
+
+			check.equal(#calls.LogSessionEnded, 1)
+			local loggedPlayer, loggedDuration = table.unpack(calls.LogSessionEnded[1])
+			check.equal(loggedPlayer, player)
+			check.is_true(loggedDuration >= 0)
+
+			DataManager._analytics = nil
+		end)
+
+		test.case("does not log a session for a player with no active session", function()
+			local player = FakePlayer.new(8)
+			local analytics, calls = TestHelpers.newFakeAnalytics()
+			DataManager._analytics = analytics
+
+			DataManager.RemovePlayer(player)
+
+			check.equal(#calls.LogSessionEnded, 0)
+
+			DataManager._analytics = nil
 		end)
 	end)
 end

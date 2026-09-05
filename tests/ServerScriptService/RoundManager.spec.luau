@@ -68,6 +68,26 @@ return function()
 
 			check.equal(RoundManager.GetState().quotaTarget, 10)
 		end)
+
+		test.case("logs a RoundStarted analytics event for every player in the server", function()
+			local p1, d1 = newPlayerWithData(1)
+			local p2, d2 = newPlayerWithData(2)
+			env.players:AddPlayer(p1)
+			env.players:AddPlayer(p2)
+			RoundManager._dataManager = TestHelpers.newFakeDataManager({ [p1] = d1, [p2] = d2 })
+			local analytics, calls = TestHelpers.newFakeAnalytics()
+			RoundManager._analytics = analytics
+
+			RoundManager.StartRound()
+
+			check.equal(#calls.LogRoundStarted, 1)
+			local loggedPlayers = calls.LogRoundStarted[1][1]
+			check.equal(#loggedPlayers, 2)
+
+			env.players:RemovePlayerFromGame(p1)
+			env.players:RemovePlayerFromGame(p2)
+			RoundManager._analytics = nil
+		end)
 	end)
 
 	test.suite("RoundManager.RecordKill", function()
@@ -166,6 +186,25 @@ return function()
 
 			env.players:RemovePlayerFromGame(p1)
 			env.players:RemovePlayerFromGame(p2)
+		end)
+
+		test.case("logs a RoundEnded analytics event with the end reason for every player", function()
+			local p1, d1 = newPlayerWithData(1)
+			env.players:AddPlayer(p1)
+			RoundManager._dataManager = TestHelpers.newFakeDataManager({ [p1] = d1 })
+			local analytics, calls = TestHelpers.newFakeAnalytics()
+			RoundManager._analytics = analytics
+			RoundManager.StartRound()
+
+			RoundManager.EndRound("QuotaMet")
+
+			check.equal(#calls.LogRoundEnded, 1)
+			local loggedPlayers, loggedReason = calls.LogRoundEnded[1][1], calls.LogRoundEnded[1][2]
+			check.equal(#loggedPlayers, 1)
+			check.equal(loggedReason, "QuotaMet")
+
+			env.players:RemovePlayerFromGame(p1)
+			RoundManager._analytics = nil
 		end)
 
 		test.case("does not double-end an already-ended round", function()

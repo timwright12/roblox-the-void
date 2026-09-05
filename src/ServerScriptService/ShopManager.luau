@@ -9,10 +9,11 @@ local RemoteDefinitions = require(ReplicatedStorage.Remotes.RemoteDefinitions)
 
 local ShopManager = {}
 
---- Wires the module up against a live DataManager. Called once at server
---- startup.
-function ShopManager.Init(dataManager)
+--- Wires the module up against a live DataManager and Analytics. Called
+--- once at server startup.
+function ShopManager.Init(dataManager, analytics)
 	ShopManager._dataManager = dataManager
+	ShopManager._analytics = analytics
 
 	RemoteDefinitions.PurchaseWeapon.OnServerInvoke = function(player, weaponId)
 		return ShopManager.PurchaseWeapon(player, weaponId)
@@ -53,6 +54,10 @@ function ShopManager.PurchaseWeapon(player: Player, weaponId: string)
 	data.xp -= weaponStats.cost
 	table.insert(data.ownedWeapons, weaponId)
 	data.equippedWeapon = weaponId
+
+	if ShopManager._analytics then
+		ShopManager._analytics.LogWeaponPurchased(player, weaponId, weaponStats.cost, data.xp)
+	end
 
 	return {
 		success = true,

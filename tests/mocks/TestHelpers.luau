@@ -18,6 +18,30 @@ function TestHelpers.newFakeDataManager(dataByPlayer)
 	}
 end
 
+--- Builds a fake Analytics module that records every call instead of
+--- reaching real AnalyticsService (which doesn't exist under Lune, and per
+--- Roblox's own docs never sends events outside a published game anyway —
+--- see Analytics.luau's header comment). Returns the fake plus a `calls`
+--- table (keyed by method name, e.g. calls.LogRoundStarted) that
+--- accumulates each call's arguments as a sub-table, in call order.
+function TestHelpers.newFakeAnalytics()
+	local calls = {
+		LogRoundStarted = {},
+		LogRoundEnded = {},
+		LogSessionEnded = {},
+		LogWeaponPurchased = {},
+	}
+
+	local fake = {}
+	for methodName in calls do
+		fake[methodName] = function(...)
+			table.insert(calls[methodName], { ... })
+		end
+	end
+
+	return fake, calls
+end
+
 --- Spawns zombies via `enemySpawner` until one rolls the given variant, or
 --- gives up after `maxAttempts` and returns nil. Default maxAttempts (5000)
 -- gives a (1 - 0.99^5000) ≈ 100% chance of finding a 1%-probability variant —
