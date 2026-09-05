@@ -1,0 +1,3 @@
+-- Reads player input, sends attack intent to server, plays local hit
+-- feedback/animation (cosmetic only — never trusted for damage). See
+-- the-void-implementation-plan.md Section 3.

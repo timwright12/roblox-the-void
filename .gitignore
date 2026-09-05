@@ -58,3 +58,6 @@ Desktop.ini
 # Linux / Miscellaneous
 *~
 *.log
+
+# Local deletion staging area (see project conventions)
+.tim-please-delete/

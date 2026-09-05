@@ -1,0 +1,2 @@
+-- Displays XP/level/quota progress/round timer from server-pushed state. See
+-- the-void-implementation-plan.md Section 3.

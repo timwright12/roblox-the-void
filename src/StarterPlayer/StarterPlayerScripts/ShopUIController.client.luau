@@ -1,0 +1,3 @@
+-- Renders shop menu from WeaponTable, sends purchase requests, reflects
+-- server-confirmed state (don't optimistically show a purchase as successful
+-- before server confirms). See the-void-implementation-plan.md Section 3.
