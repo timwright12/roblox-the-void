@@ -4,7 +4,8 @@
     "$className": "DataModel",
 
     "ReplicatedStorage": {
-      "$path": "src/ReplicatedStorage"
+      "$path": "src/ReplicatedStorage",
+      "$ignoreUnknownInstances": true
     },
 
     "ServerScriptService": {
@@ -27,7 +28,8 @@
     "Workspace": {
       "$properties": {
         "FilteringEnabled": true
-      }
+      },
+      "$ignoreUnknownInstances": true
     },
     "Lighting": {
       "$properties": {
