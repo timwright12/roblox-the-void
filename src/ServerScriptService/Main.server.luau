@@ -2,18 +2,26 @@
 -- Not listed explicitly in the-void-implementation-plan.md's module table
 -- (which only lists the ModuleScripts), but every Rojo server tree needs one
 -- concrete Script to actually run startup logic — this is that script.
+--
+-- A plain named Script (rather than init.server.luau usurping the
+-- ServerScriptService folder itself) so the other modules are its siblings,
+-- not its children — required via script.Parent accordingly. Rojo's
+-- init.server.luau "usurp" mechanism doesn't apply cleanly when the folder
+-- being usurped is a real Instance service (ServerScriptService can't be
+-- reclassified as a Script), which produced a duplicate/orphaned instance
+-- that never actually ran.
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local RemoteDefinitions = require(ReplicatedStorage.Remotes.RemoteDefinitions)
-local DataManager = require(script.DataManager)
-local EnemySpawner = require(script.EnemySpawner)
-local XPManager = require(script.XPManager)
-local CombatManager = require(script.CombatManager)
-local ShopManager = require(script.ShopManager)
-local WeaponPickupManager = require(script.WeaponPickupManager)
-local RoundManager = require(script.RoundManager)
+local DataManager = require(script.Parent.DataManager)
+local EnemySpawner = require(script.Parent.EnemySpawner)
+local XPManager = require(script.Parent.XPManager)
+local CombatManager = require(script.Parent.CombatManager)
+local ShopManager = require(script.Parent.ShopManager)
+local WeaponPickupManager = require(script.Parent.WeaponPickupManager)
+local RoundManager = require(script.Parent.RoundManager)
 
 XPManager.Init(DataManager)
 RoundManager.Init(DataManager)
