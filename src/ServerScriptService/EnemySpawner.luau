@@ -5,8 +5,15 @@
 --
 -- Phase 1: single robot type (Grunt), fixed spawn points, code-built
 -- placeholder model (no art pass yet — see the-void-implementation-plan.md
--- Section 5, Phase 1/4). Real models are swapped in later by pointing this
--- module's model construction at EnemyTable's modelName instead.
+-- Section 5, Phase 1/4).
+--
+-- Phase 4: real models, sourced from the Toolbox and placed by hand in
+-- Studio under ReplicatedStorage.EnemyModels (named per EnemyTable's
+-- modelName field — ScoutRobot/GruntRobot/HeavyRobot/ZombieBase), are now
+-- cloned per spawn instead of the placeholder — see buildEnemyModel. Since
+-- Toolbox models aren't Rojo-managed source files, a type with no matching
+-- model there (or in a test's fake environment) still falls back to the
+-- placeholder cube rather than erroring.
 --
 -- Phase 2: adds Scout/Heavy robots and the zombie enemy type. A zombie's
 -- weapon variant (Punch/Sword/HeadThrow) is rolled once here at spawn time
@@ -48,6 +55,30 @@ local function buildPlaceholderModel(enemyTypeName: string, stats)
 	return model
 end
 
+--- Builds the Model to use for a newly-spawned enemy: clones the real model
+--- from ReplicatedStorage.EnemyModels (named per stats.modelName — see
+--- EnemyTable.luau) if one has been placed there, applying this enemy's
+--- HP/speed onto the clone's Humanoid (a shared template can't bake in
+--- per-tier stats). Falls back to the code-built placeholder cube when no
+--- such model exists yet — this is what keeps the game running (and the
+--- test suite passing, since the fake Roblox environment has no
+--- EnemyModels folder) before every enemy type has a real model authored.
+local function buildEnemyModel(enemyTypeName: string, stats)
+	local enemyModels = ReplicatedStorage:FindFirstChild("EnemyModels")
+	local template = enemyModels and enemyModels:FindFirstChild(stats.modelName)
+	if not template then
+		return buildPlaceholderModel(enemyTypeName, stats)
+	end
+
+	local model = template:Clone()
+	local humanoid = model:FindFirstChildOfClass("Humanoid")
+	humanoid.MaxHealth = stats.hp
+	humanoid.Health = stats.hp
+	humanoid.WalkSpeed = stats.speed
+
+	return model
+end
+
 --- Rolls a weighted random key from a table of { spawnChance = number, ... }
 --- entries. Weights are expected to sum to 1.0 (see EnemyTable.lua).
 local function rollWeightedVariant(weaponVariants): (string, table)
@@ -79,7 +110,7 @@ function EnemySpawner.SpawnEnemy(enemyTypeName: string, spawnCFrame: CFrame)
 	nextEnemyId += 1
 	local enemyId = nextEnemyId
 
-	local model = buildPlaceholderModel(enemyTypeName, stats)
+	local model = buildEnemyModel(enemyTypeName, stats)
 	model:SetPrimaryPartCFrame(spawnCFrame)
 	model:SetAttribute("EnemyId", enemyId)
 	CollectionService:AddTag(model, ENEMY_TAG)

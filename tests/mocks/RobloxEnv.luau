@@ -120,6 +120,14 @@ function RobloxEnv.setup()
 		Remotes = {
 			RemoteDefinitions = fakeModule(remoteDefinitions),
 		},
+		-- EnemyModels is deliberately absent by default: EnemySpawner falls
+		-- back to a placeholder model when it's not there (see
+		-- EnemySpawner.luau's buildEnemyModel), which is what every existing
+		-- test relies on. A test that needs a real model sets
+		-- env.replicatedStorage.EnemyModels itself (see EnemySpawner.spec.luau).
+		FindFirstChild = function(self, name: string)
+			return self[name]
+		end,
 	}
 
 	local serverPackages = {

@@ -4,7 +4,7 @@
 -- odds statistically close to 80/19/1" — verified below.
 
 local RobloxEnv = require("../mocks/RobloxEnv")
-RobloxEnv.setup()
+local env = RobloxEnv.setup()
 
 local frktest = require("@frktest/frktest")
 local test = frktest.test
@@ -29,6 +29,30 @@ return function()
 			check.equal(enemy.attackType, "melee")
 			check.equal(enemy.humanoid.MaxHealth, 60) -- Grunt hp per EnemyTable
 			check.equal(enemy.damage, 12) -- Grunt damage per EnemyTable
+		end)
+
+		test.case("clones the real model from ReplicatedStorage.EnemyModels when one exists", function()
+			local template = Instance.new("Model")
+			template.Name = "GruntRobot"
+			local head = Instance.new("Part")
+			head.Name = "Head"
+			head.Parent = template
+			local humanoid = Instance.new("Humanoid")
+			humanoid.Parent = template
+			template.PrimaryPart = head
+
+			local enemyModels = Instance.new("Model") -- reused as a plain container; only :FindFirstChild matters
+			enemyModels.Name = "EnemyModels"
+			template.Parent = enemyModels
+			env.replicatedStorage.EnemyModels = enemyModels
+
+			local enemyId = EnemySpawner.SpawnEnemy("Grunt", CFrame.new(0, 0, 0))
+			local enemy = EnemySpawner.GetEnemy(enemyId)
+
+			check.equal(enemy.model.Name, "GruntRobot")
+			check.not_nil(enemy.model:FindFirstChild("Head"))
+
+			env.replicatedStorage.EnemyModels = nil
 		end)
 
 		test.case("respawns after death at the same spawn point", function()
