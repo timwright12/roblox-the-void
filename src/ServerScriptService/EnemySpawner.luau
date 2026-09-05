@@ -3,10 +3,16 @@
 -- odds, respawns on timer, tracks live enemy count for quota purposes.
 -- See the-void-implementation-plan.md Section 3.
 --
--- Phase 1 scope: single robot type (Grunt), fixed spawn points, code-built
+-- Phase 1: single robot type (Grunt), fixed spawn points, code-built
 -- placeholder model (no art pass yet — see the-void-implementation-plan.md
 -- Section 5, Phase 1/4). Real models are swapped in later by pointing this
 -- module's model construction at EnemyTable's modelName instead.
+--
+-- Phase 2: adds Scout/Heavy robots and the zombie enemy type. A zombie's
+-- weapon variant (Punch/Sword/HeadThrow) is rolled once here at spawn time
+-- per EnemyTable.Zombie.weaponVariants.spawnChance and stored on the enemy
+-- record for CombatManager to read — it does not change for that zombie's
+-- lifetime.
 
 local CollectionService = game:GetService("CollectionService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -42,6 +48,28 @@ local function buildPlaceholderModel(enemyTypeName: string, stats)
 	return model
 end
 
+--- Rolls a weighted random key from a table of { spawnChance = number, ... }
+--- entries. Weights are expected to sum to 1.0 (see EnemyTable.lua).
+local function rollWeightedVariant(weaponVariants): (string, table)
+	local roll = math.random()
+	local cumulative = 0
+
+	for variantName, variantStats in weaponVariants do
+		cumulative += variantStats.spawnChance
+		if roll <= cumulative then
+			return variantName, variantStats
+		end
+	end
+
+	-- Floating point rounding safety net: fall back to the last entry
+	-- iterated rather than erroring if weights don't sum to exactly 1.0.
+	local lastName, lastStats
+	for variantName, variantStats in weaponVariants do
+		lastName, lastStats = variantName, variantStats
+	end
+	return lastName, lastStats
+end
+
 --- Spawns a single enemy of the given type at the given CFrame. Returns the
 --- enemy's id (used by CombatManager to look it up) and its Model instance.
 function EnemySpawner.SpawnEnemy(enemyTypeName: string, spawnCFrame: CFrame)
@@ -59,12 +87,26 @@ function EnemySpawner.SpawnEnemy(enemyTypeName: string, spawnCFrame: CFrame)
 
 	local record = {
 		id = enemyId,
-		enemyType = enemyTypeName,
-		xpReward = stats.xpReward,
+		enemyType = stats.enemyType,
+		enemyName = enemyTypeName,
 		model = model,
 		humanoid = model:FindFirstChildOfClass("Humanoid"),
 		spawnCFrame = spawnCFrame,
 	}
+
+	if stats.weaponVariants then
+		local variantName, variantStats = rollWeightedVariant(stats.weaponVariants)
+		record.weaponVariant = variantName
+		record.xpReward = variantStats.xpReward
+		record.attackType = variantStats.attackType
+		record.variantStats = variantStats
+		model:SetAttribute("WeaponVariant", variantName)
+	else
+		record.xpReward = stats.xpReward
+		record.attackType = "melee"
+		record.damage = stats.damage
+	end
+
 	liveEnemies[enemyId] = record
 
 	record.humanoid.Died:Connect(function()
@@ -81,6 +123,15 @@ end
 
 function EnemySpawner.GetEnemy(enemyId: number)
 	return liveEnemies[enemyId]
+end
+
+--- Returns a snapshot array of all currently-live enemy records.
+function EnemySpawner.GetAllLiveEnemies()
+	local snapshot = {}
+	for _, record in liveEnemies do
+		table.insert(snapshot, record)
+	end
+	return snapshot
 end
 
 function EnemySpawner.GetLiveEnemyCount()
@@ -102,6 +153,30 @@ function EnemySpawner.StartPhase1Spawns()
 
 	for _, cframe in spawnPoints do
 		EnemySpawner.SpawnEnemy("Grunt", cframe)
+	end
+end
+
+--- Phase 2 bootstrap: adds Scout/Heavy robots and zombies to the spawn
+--- rotation alongside Phase 1's Grunts. Fixed points, same caveat as above —
+--- real placement is a Phase 4 concern.
+function EnemySpawner.StartPhase2Spawns()
+	EnemySpawner.StartPhase1Spawns()
+
+	local scoutAndHeavyPoints = {
+		Scout = CFrame.new(15, 5, -10),
+		Heavy = CFrame.new(-15, 5, -10),
+	}
+	for enemyTypeName, cframe in scoutAndHeavyPoints do
+		EnemySpawner.SpawnEnemy(enemyTypeName, cframe)
+	end
+
+	local zombieSpawnPoints = {
+		CFrame.new(5, 5, 20),
+		CFrame.new(-5, 5, 20),
+		CFrame.new(0, 5, 25),
+	}
+	for _, cframe in zombieSpawnPoints do
+		EnemySpawner.SpawnEnemy("Zombie", cframe)
 	end
 end
 

@@ -79,6 +79,7 @@ If Rojo isn't already set up in the target environment, that's the first task �
 Notes for the implementer:
 - `xp` is the spendable/level-progress pool. `totalXp` is a separate lifetime counter — never let the two get confused, since `xp` decreases on weapon purchase but `totalXp` must not.
 - Save on: player leaving, every ~2 minutes during play, and on round end. Wrap all DataStore calls with retry logic (exponential backoff, max 3-5 attempts) and never let a failed save silently swallow player progress — log it.
+- **Implementation decision (Phase 2):** `DataManager` uses [ProfileStore](https://github.com/MadStudioRoblox/ProfileStore) (`lm-loleris/profilestore`, vendored via Wally) rather than hand-rolling the retry/backoff logic described above. Current Roblox community consensus (and Roblox's own guidance) is to use a maintained abstraction for this rather than hand-roll it — ProfileStore additionally handles session locking (preventing the classic multi-server data-loss/dupe race that a hand-rolled retry wrapper would not address unless built separately). This was an explicit approval from the design owner to add an external dependency. `DataManager`'s responsibility (single owner of persistent player data, full record including `xp`/`totalXp`/`level`/`ownedWeapons`/`equippedWeapon`/`stats`) is unchanged — only the internal mechanism differs from the original plan wording.
 
 ### 2.2 Weapon Table (ReplicatedStorage/Data/WeaponTable.lua)
 
@@ -238,7 +239,7 @@ Acceptance criteria:
 
 ## 6. Items Left to Implementer Discretion (not blocking, but call these out when reached)
 
-- Exact weapon pickup despawn timer (Phase 2) — recommend 60-90s, confirm with design owner if precision matters.
+- ~~Exact weapon pickup despawn timer (Phase 2)~~ — **Resolved: 60 seconds**, confirmed with design owner during Phase 2 implementation.
 - Concrete FPS/performance target for the finished map (Phase 4) — depends on target device mix (PC/mobile/console), not yet specified.
 - Target round-completion rate for quota tuning (Phase 5) — recommend defining a number rather than tuning by feel.
 - Robot HP/damage and weapon damage values in Sections 2.2/2.3 are placeholder starting numbers, not final balance — real tuning happens in Phase 5 against actual playtest data.

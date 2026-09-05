@@ -53,6 +53,22 @@ The implementation plan already specifies the target file tree (`default.project
 
 **Important workflow note going forward:** once Rojo is wired up, do not hand-author scripts inside Studio's Explorer/script editor for anything that should live in `src/` — changes made directly in Studio to a Rojo-synced tree can be overwritten or cause sync conflicts. Studio-side edits should be limited to things Rojo doesn't manage well by default: map geometry, terrain, part placement, lighting, and non-scripted instances. Confirm this boundary as the project grows; if it becomes unclear which side owns what, that's worth raising rather than guessing.
 
+### 3.4 Installing Wally (Roblox Package Manager)
+
+This project uses [Wally](https://github.com/UpliftGames/wally) to manage external Lua dependencies (currently just [ProfileStore](https://github.com/MadStudioRoblox/ProfileStore) for DataStore persistence — see the-void-implementation-plan.md Section 2.1). Install via `mise`, same pattern as Rojo:
+
+```
+mise use -g "github:UpliftGames/wally@latest"
+```
+
+Then, from the repo root, install the project's dependencies:
+
+```
+mise exec -- wally install
+```
+
+This reads `wally.toml` and downloads packages into `ServerPackages/` (and `Packages/` for anything shared client/server) — both directories are gitignored since they're reproducible from `wally.toml`/`wally.lock`, which **are** committed. Run `wally install` again any time `wally.toml` changes or after a fresh clone, before opening the project in Studio — `DataManager` and anything else depending on a Wally package will error on require until this has been run at least once.
+
 ## 4. Building and Testing Locally
 
 - Use Studio's **Play** button (or **Play Here** / **Play as Server+Clients** for multiplayer-relevant testing) to run the game in-editor. For anything server-authoritative (which, per the implementation plan, is nearly everything — combat, XP, purchases), use **Play as Server+Clients** or **Start Server** with multiple **Start Player** clients so you're actually testing client/server boundaries, not just a single local client that trivially trusts itself.
