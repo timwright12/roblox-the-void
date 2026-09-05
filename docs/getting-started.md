@@ -30,9 +30,15 @@ Rojo runs a local sync server that watches your project's file tree (the `src/` 
 
 Two pieces are required — the CLI tool and the Studio plugin:
 
-1. **Rojo CLI**: Install via [Aftman](https://github.com/LPGhatguy/aftman) (Roblox's recommended toolchain manager) or `cargo install rojo` if you have Rust installed, or download a prebuilt binary from the [Rojo GitHub releases page](https://github.com/rojo-rbx/rojo/releases). Aftman is the path Roblox's own docs recommend if you don't already have a preferred method — it also makes future tool-version pinning easier for this project.
+1. **Rojo CLI**: Install via a toolchain manager so the version is pinned and reproducible. Roblox's ecosystem historically pointed to **Aftman**, but Aftman's upstream repo is archived/unmaintained — use **[mise](https://mise.jdx.dev)** instead (actively maintained, and Homebrew-installable: `brew install mise`). Once `mise` is installed and activated in your shell (`eval "$(mise activate zsh)"` in `~/.zshrc`, or the equivalent for your shell), install Rojo with:
+   ```
+   mise use -g "github:rojo-rbx/rojo@latest"
+   ```
+   This pulls the CLI binary directly from Rojo's GitHub releases (with attestation verification) rather than building from source — much faster than compiling. If you don't want a toolchain manager at all, `brew install rojo` or a manual download from the [Rojo GitHub releases page](https://github.com/rojo-rbx/rojo/releases) both work too, just without version pinning across machines.
 2. **Rojo Studio Plugin**: Inside Studio, go to the **Plugins** tab → **Manage Plugins** (or the Toolbox) and search for "Rojo," or install it via the CLI with `rojo plugin install` (this drops the plugin into Studio's local plugins folder automatically — simplest option).
 3. Verify install: run `rojo --version` in a terminal to confirm the CLI is on your PATH.
+
+**Note on Apple Silicon vs. Intel Macs:** installing `mise` itself via Homebrew is quick on Apple Silicon (a prebuilt bottle exists), but on an unsupported/older platform combination Homebrew may fall back to compiling `mise` from Rust source, which can take 30+ minutes. This is a one-time cost — Rojo itself installs in seconds afterward since it's a direct binary download, not a source build.
 
 ### 3.3 Setting up this project with Rojo
 
