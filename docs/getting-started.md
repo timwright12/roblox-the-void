@@ -75,6 +75,16 @@ This reads `wally.toml` and downloads packages into `ServerPackages/` (and `Pack
 - Studio's **Output** window shows server and client print/warn/error output — this is where you'll verify server-authoritative behavior (e.g., confirming XP is calculated server-side, per the testing checklist in the implementation plan).
 - For quick iteration on scripts, keep `rojo serve` running in the background and just re-enter Play mode in Studio after each save — no need to restart Rojo itself between test runs.
 
+### 4.1 Running the automated test suite (no Studio needed)
+
+Server module logic (combat, XP, shop, rounds, spawning, weapon pickups, persistence) has an automated test suite that runs entirely outside Roblox via [Lune](https://github.com/lune-org/lune), a standalone Luau runtime. This is separate from — and much faster than — testing in Studio, and doesn't require a place to be open.
+
+1. Install Lune and Wally, same pattern as Rojo (Section 3.2/3.4): `mise use -g "github:lune-org/lune@latest"`.
+2. Install dependencies (frktest, the test framework, is a dev-dependency in `wally.toml`): `mise exec -- wally install`.
+3. Run the suite: `mise exec -- lune run tests/_run.luau`.
+
+See the-void-implementation-plan.md Section 7.1 for what's covered and the known limitations of testing Roblox server code outside Roblox (e.g. `Humanoid` behavior is hand-mocked, since Lune's Roblox datatype library doesn't simulate it).
+
 ## 5. Publishing to Roblox (Getting a Build Live)
 
 "Live" on Roblox has a few distinct meanings depending on what you want — worth being precise about since they're different actions:

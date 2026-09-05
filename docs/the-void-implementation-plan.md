@@ -248,14 +248,33 @@ Acceptance criteria:
 
 ## 7. Testing Checklist (run before considering any phase "done")
 
-- [ ] All damage/XP/purchase logic verified server-authoritative (attempt to call remotes with invalid/spoofed data and confirm server rejects).
-- [ ] DataStore save/load verified across a server restart, not just in the same session.
-- [ ] Round quota scaling manually verified at both ends of the 5-10 player range.
+Items marked **(automated)** are covered by the Lune/frktest suite (Section 7.1) and can be verified by running it — no manual repro needed. Everything else still requires live testing in Studio or a published place.
+
+- [x] All damage/XP/purchase logic verified server-authoritative (attempt to call remotes with invalid/spoofed data and confirm server rejects). **(automated — ShopManager.spec.luau, CombatManager.spec.luau call the validation functions directly, which is exactly the "spoofed call" scenario)**
+- [ ] DataStore save/load verified across a server restart, not just in the same session. **Not automatable** — the test suite uses a fake ProfileStore (DataManager.spec.luau) to verify DataManager's own load/save/session-lifecycle logic, but that can't substitute for confirming the real DataStore survives an actual server restart.
+- [ ] Round quota scaling manually verified at both ends of the 5-10 player range. Requires live playtesting (see Section 5 Phase 3 acceptance criteria).
 - [ ] Friend-join tested with at least two real accounts, not assumed from documentation.
-- [ ] No client-trusted values used for anything that affects XP, level, or ownership.
-- [ ] Zombie weapon-variant spawn odds verified statistically (not just "all three variants appeared once").
-- [ ] Head-thrower instant-kill splash verified server-authoritative: a client cannot claim survival if server-side splash logic says otherwise, and vice versa.
-- [ ] Head-thrower death confirmed to apply the same death penalty path as every other death cause (no divergent code path skipped in testing).
+- [x] No client-trusted values used for anything that affects XP, level, or ownership. **(automated, by construction — every test calls server-side functions directly with attacker-controlled-shaped input and confirms rejection, rather than trusting client state)**
+- [x] Zombie weapon-variant spawn odds verified statistically (not just "all three variants appeared once"). **(automated — EnemySpawner.spec.luau, 10,000-sample distribution check)**
+- [x] Head-thrower instant-kill splash verified server-authoritative: a client cannot claim survival if server-side splash logic says otherwise, and vice versa. **(automated — CombatManager.spec.luau covers telegraph → splash-kill, player-left-radius-survives, and zombie-died-mid-windup-cancels-explosion)**
+- [x] Head-thrower death confirmed to apply the same death penalty path as every other death cause (no divergent code path skipped in testing). **(automated — CombatManager's instantKillPlayer uses the same TakeDamage(math.huge) → Humanoid.Died path as normal combat damage, and WeaponPickupManager.spec.luau tests HandlePlayerDeath directly, not conditioned on cause)**
+
+### 7.1 Running the automated test suite
+
+Tests run under [Lune](https://github.com/lune-org/lune) (a standalone Luau runtime — chosen over TestEZ/Studio specifically so tests run without opening Studio) using [frktest](https://github.com/itsfrank/frktest) as the assertion/runner library. Neither runs inside the actual Roblox game — see `tests/mocks/RobloxEnv.luau` for the fake `game`/`Players`/`Instance`/`Humanoid` environment that lets unmodified production modules load and run outside Roblox.
+
+```
+mise exec -- lune run tests/_run.luau
+```
+
+(or just `lune run tests/_run.luau` once `mise activate` is set up per `getting-started.md` Section 3.2).
+
+Coverage: `XPManager`, `ShopManager`, `RoundManager`, `EnemySpawner`, `CombatManager`, `WeaponPickupManager`, `DataManager` — all seven non-trivial server modules. Client controllers and `RemoteDefinitions` are not covered (client-side UI logic and remote-instance creation aren't meaningfully unit-testable without a real Roblox client).
+
+**Known limitations of this approach** (accepted trade-offs, not bugs):
+- `CombatManager.Init`/`RoundManager.Init` each start an infinite `task.spawn` polling loop, which has no natural exit under Lune (a real Roblox server just runs forever, so this was never a problem in production). Tests never call `.Init()` — they set the same fields `Init()` would set directly, and call the underlying logic functions (`HandleAttackIntent`, `_tickOneEnemyAttack`, `RecordKill`, etc.) directly instead.
+- `@lune/roblox`'s `Instance.new` does not simulate `Humanoid`-specific behavior (`TakeDamage`, `.Died` firing) — `tests/mocks/FakeHumanoid.luau` implements exactly that surface as a hand-built fake, not a real Roblox Humanoid.
+- Globally reassigning Luau's `require` function breaks relative-path resolution for *other* unrelated `require()` calls happening anywhere else in the process (confirmed by direct experiment) — so the fake-module-unwrapping trick used to satisfy `require(ReplicatedStorage.Data.EnemyTable)`-style calls is scoped narrowly to the exact duration of loading one production module (`RobloxEnv.requireModule`), not left on globally.
 
 ## 8. Release / Deployment Plan
 

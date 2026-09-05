@@ -3,6 +3,11 @@
 registry = "test"
 
 [[package]]
+name = "itsfrank/frktest"
+version = "0.0.2"
+dependencies = []
+
+[[package]]
 name = "lm-loleris/profilestore"
 version = "1.0.3"
 dependencies = []
@@ -10,4 +15,4 @@ dependencies = []
 [[package]]
 name = "timwright12/the-void"
 version = "0.1.0"
-dependencies = [["ProfileStore", "lm-loleris/profilestore@1.0.3"]]
+dependencies = [["ProfileStore", "lm-loleris/profilestore@1.0.3"], ["frktest", "itsfrank/frktest@0.0.2"]]
