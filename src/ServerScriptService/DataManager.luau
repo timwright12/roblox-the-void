@@ -38,6 +38,13 @@ if RunService:IsStudio() then
 end
 
 local profiles = {}
+local sessionStartedAt = {}
+
+--- Wires the module up against Analytics (for session-length events).
+--- Called once at server startup.
+function DataManager.Init(analytics)
+	DataManager._analytics = analytics
+end
 
 function DataManager.LoadPlayer(player: Player)
 	local profile = PlayerStore:StartSessionAsync(`{player.UserId}`, {
@@ -66,6 +73,7 @@ function DataManager.LoadPlayer(player: Player)
 	end
 
 	profiles[player] = profile
+	sessionStartedAt[player] = os.clock()
 end
 
 function DataManager.RemovePlayer(player: Player)
@@ -73,6 +81,11 @@ function DataManager.RemovePlayer(player: Player)
 	if profile then
 		profile:EndSession()
 		profiles[player] = nil
+
+		if DataManager._analytics and sessionStartedAt[player] then
+			DataManager._analytics.LogSessionEnded(player, os.clock() - sessionStartedAt[player])
+		end
+		sessionStartedAt[player] = nil
 	end
 end
 

@@ -29,6 +29,7 @@ local state = "Lobby" -- "Lobby" | "Active" | "Ended"
 local quotaTarget = 0
 local quotaProgress = 0
 local roundEndsAt = 0
+local roundStartedAt = 0
 
 -- Per-round (not lifetime) tracking for the end-of-round summary. Reset on
 -- every StartRound; intentionally not persisted — this data has no meaning
@@ -60,10 +61,11 @@ local function pushStateToAll(extra: { [string]: any }?)
 end
 
 --- Wires the module up against a live DataManager (for per-player round/kill
---- stats) and starts the lobby-to-round scheduling loop. Called once at
---- server startup.
-function RoundManager.Init(dataManager)
+--- stats) and Analytics (for round start/end events), and starts the
+--- lobby-to-round scheduling loop. Called once at server startup.
+function RoundManager.Init(dataManager, analytics)
 	RoundManager._dataManager = dataManager
+	RoundManager._analytics = analytics
 
 	task.spawn(function()
 		while true do
@@ -86,7 +88,8 @@ function RoundManager.StartRound()
 	local playerCount = #Players:GetPlayers()
 	quotaTarget = QUOTA_PER_PLAYER * math.max(playerCount, 1)
 	quotaProgress = 0
-	roundEndsAt = os.clock() + ROUND_TIMER_SECONDS
+	roundStartedAt = os.clock()
+	roundEndsAt = roundStartedAt + ROUND_TIMER_SECONDS
 	state = "Active"
 	roundKillsByPlayer = {}
 	roundXpByPlayer = {}
@@ -96,6 +99,10 @@ function RoundManager.StartRound()
 		if data then
 			data.stats.roundsPlayed += 1
 		end
+	end
+
+	if RoundManager._analytics then
+		RoundManager._analytics.LogRoundStarted(Players:GetPlayers())
 	end
 
 	pushStateToAll()
@@ -148,6 +155,10 @@ function RoundManager.EndRound(reason: string)
 		reason = reason,
 		summaryByPlayer = summaryByPlayer,
 	})
+
+	if RoundManager._analytics then
+		RoundManager._analytics.LogRoundEnded(Players:GetPlayers(), reason, os.clock() - roundStartedAt)
+	end
 
 	-- Hold the "Ended" state visible for a bit before returning to lobby, so
 	-- the summary isn't immediately overwritten by the next state push.

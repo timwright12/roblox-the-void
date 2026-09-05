@@ -258,6 +258,7 @@ Items marked **(automated)** are covered by the Lune/frktest suite (Section 7.1)
 - [x] Zombie weapon-variant spawn odds verified statistically (not just "all three variants appeared once"). **(automated — EnemySpawner.spec.luau, 10,000-sample distribution check)**
 - [x] Head-thrower instant-kill splash verified server-authoritative: a client cannot claim survival if server-side splash logic says otherwise, and vice versa. **(automated — CombatManager.spec.luau covers telegraph → splash-kill, player-left-radius-survives, and zombie-died-mid-windup-cancels-explosion)**
 - [x] Head-thrower death confirmed to apply the same death penalty path as every other death cause (no divergent code path skipped in testing). **(automated — CombatManager's instantKillPlayer uses the same TakeDamage(math.huge) → Humanoid.Died path as normal combat damage, and WeaponPickupManager.spec.luau tests HandlePlayerDeath directly, not conditioned on cause)**
+- [ ] Analytics events (round start/end, completion vs timeout, session length, weapon purchases) confirmed actually arriving in the Creator Dashboard's Analytics tab. **Not automatable, and not verifiable in Studio at all** — Roblox's AnalyticsService only sends events from the server of a *published* place (confirmed via Roblox's own docs); Studio only logs a local "event fired" acknowledgment with no way to confirm delivery. Requires publishing to the staging place (Section 8.2) and checking the dashboard 24+ hours later (events aggregate daily per Roblox's docs).
 
 ### 7.1 Running the automated test suite
 

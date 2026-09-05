@@ -66,6 +66,31 @@ return function()
 			check.equal(data.equippedWeapon, "WarHammer")
 		end)
 
+		test.case("logs a Shop analytics event on a successful purchase, but not on a rejected one", function()
+			local player = {}
+			local data = { xp = 100, ownedWeapons = { "BaseSword" }, equippedWeapon = "BaseSword" }
+			ShopManager._dataManager = TestHelpers.newFakeDataManager({ [player] = data })
+			local analytics, calls = TestHelpers.newFakeAnalytics()
+			ShopManager._analytics = analytics
+
+			ShopManager.PurchaseWeapon(player, "IronSword")
+
+			check.equal(#calls.LogWeaponPurchased, 1)
+			local loggedPlayer, loggedWeaponId, loggedCost, loggedNewXp = table.unpack(calls.LogWeaponPurchased[1])
+			check.equal(loggedPlayer, player)
+			check.equal(loggedWeaponId, "IronSword")
+			check.equal(loggedCost, 50)
+			check.equal(loggedNewXp, 50)
+
+			-- Already owns IronSword now — this purchase attempt must be
+			-- rejected, and rejected purchases spend no XP, so nothing should
+			-- be logged for it.
+			ShopManager.PurchaseWeapon(player, "IronSword")
+			check.equal(#calls.LogWeaponPurchased, 1)
+
+			ShopManager._analytics = nil
+		end)
+
 		test.case("rejects an unknown weapon id", function()
 			local player = {}
 			local data = { xp = 1000, ownedWeapons = { "BaseSword" }, equippedWeapon = "BaseSword" }
