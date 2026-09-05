@@ -1,0 +1,75 @@
+name: savetoroblox
+
+# Manual dispatch only — no auto-publish on push/merge, even to staging. See
+# the-void-implementation-plan.md Section 8.3 for why: pre-launch, a bad
+# merge should never reach a place (staging or production) without someone
+# deciding to run this.
+on:
+  workflow_dispatch:
+    inputs:
+      target:
+        description: "Place to publish to"
+        required: true
+        type: choice
+        options:
+          - staging
+          - production
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Install mise
+        uses: jdx/mise-action@v4
+
+      - name: Install Rojo
+        run: mise use -g "github:rojo-rbx/rojo@latest"
+
+      - name: Build place file
+        run: mise exec -- rojo build default.project.json -o place.rbxl
+
+      - name: Resolve target place ID
+        id: resolve-place
+        env:
+          TARGET: ${{ inputs.target }}
+          STAGING_PLACE_ID: ${{ vars.ROBLOX_STAGING_PLACE_ID }}
+          PRODUCTION_PLACE_ID: ${{ vars.ROBLOX_PRODUCTION_PLACE_ID }}
+        run: |
+          if [ "$TARGET" = "production" ]; then
+            echo "place_id=$PRODUCTION_PLACE_ID" >> "$GITHUB_OUTPUT"
+          else
+            echo "place_id=$STAGING_PLACE_ID" >> "$GITHUB_OUTPUT"
+          fi
+
+      # See the-void-implementation-plan.md Section 8.4: no third-party
+      # publish action is used (the only community option found is
+      # unmaintained and untrustworthy as a supply-chain dependency) — this
+      # calls Roblox's documented Open Cloud endpoint directly.
+      - name: Publish via Open Cloud
+        id: publish
+        env:
+          ROBLOX_API_KEY: ${{ secrets.ROBLOX_API_KEY }}
+          UNIVERSE_ID: ${{ vars.ROBLOX_UNIVERSE_ID }}
+          PLACE_ID: ${{ steps.resolve-place.outputs.place_id }}
+        run: |
+          response=$(curl --fail --silent --show-error --location \
+            --request POST \
+            "https://apis.roblox.com/universes/v1/${UNIVERSE_ID}/places/${PLACE_ID}/versions?versionType=Published" \
+            --header "x-api-key: ${ROBLOX_API_KEY}" \
+            --header "Content-Type: application/octet-stream" \
+            --data-binary @place.rbxl)
+          echo "response=$response" >> "$GITHUB_OUTPUT"
+
+      - name: Surface published version
+        env:
+          TARGET: ${{ inputs.target }}
+          PLACE_ID: ${{ steps.resolve-place.outputs.place_id }}
+          RESPONSE: ${{ steps.publish.outputs.response }}
+        run: |
+          echo "Published to **$TARGET** (place $PLACE_ID)" >> "$GITHUB_STEP_SUMMARY"
+          echo '```json' >> "$GITHUB_STEP_SUMMARY"
+          echo "$RESPONSE" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"

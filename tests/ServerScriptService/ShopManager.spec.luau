@@ -54,6 +54,18 @@ return function()
 			check.equal(data.xp, 100) -- unchanged, not double-charged
 		end)
 
+		test.case("succeeds purchasing a Phase 5 tier-2 weapon (WarHammer)", function()
+			local player = {}
+			local data = { xp = 200, ownedWeapons = { "BaseSword" }, equippedWeapon = "BaseSword" }
+			ShopManager._dataManager = TestHelpers.newFakeDataManager({ [player] = data })
+
+			local result = ShopManager.PurchaseWeapon(player, "WarHammer")
+
+			check.is_true(result.success)
+			check.equal(result.newXp, 200 - 150) -- WarHammer costs 150
+			check.equal(data.equippedWeapon, "WarHammer")
+		end)
+
 		test.case("rejects an unknown weapon id", function()
 			local player = {}
 			local data = { xp = 1000, ownedWeapons = { "BaseSword" }, equippedWeapon = "BaseSword" }

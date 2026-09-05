@@ -2,10 +2,9 @@
 -- server-confirmed state (don't optimistically show a purchase as successful
 -- before server confirms). See the-void-implementation-plan.md Section 3.
 --
--- Phase 2 scope: minimal, no styling — a toggleable list of the 3 starter
--- weapons with buy/equip buttons. Opens via the "B" key (shop menu is
--- "accessible any time", per product brief Section 5.4 — not gated to a
--- physical location).
+-- Minimal, no styling — a toggleable list of every WeaponTable entry with
+-- buy/equip buttons. Opens via the "B" key (shop menu is "accessible any
+-- time", per product brief Section 5.4 — not gated to a physical location).
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
