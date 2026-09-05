@@ -16,6 +16,7 @@ This document assumes the product brief (`the-void-product-brief.md`) as the sou
 - Robots: at least 3 tiers (Scout / Grunt / Heavy) by size, HP, damage, speed, XP reward.
 - Zombies: a second enemy family alongside robots, sharing the same enemy data table and spawner. Base zombie is melee-only; weapon variant (punch/sword/head-thrower) is rolled once at spawn time and fixed for that zombie's lifetime. Head-thrower is a 1% spawn chance, ranged, telegraphed (~1s wind-up), and instant-kills any player caught in its explosion splash radius on landing — this bypasses normal damage rolls. Death from a head-thrower explosion uses the same death penalty as any other death (no special-case handling).
 - Map: single dense forest, sized for 5–10 players, with terrain landmarks to aid navigation.
+- Deployment: publishing to Roblox is done via a GitHub Actions workflow named `savetoroblox`, manually triggered, authenticated with a Roblox Open Cloud API key, supporting both a staging and a production place target. See Section 8.
 
 If anything in this plan conflicts with the brief, the brief wins — flag the conflict rather than silently picking one.
 
@@ -226,11 +227,14 @@ Tasks:
 - Server load test: simulate 10 players + full robot and zombie spawn load, watch for script performance issues.
 - DataStore failure handling: simulate DataStore outage, confirm player data isn't silently lost (retry queue, or at minimum clear error logging).
 - Add lightweight analytics events: round start/end, completion vs timeout, average session length, per-weapon purchase frequency (useful data for future weapon balance and potential monetization decisions, even though monetization is out of scope for v1).
+- Set up the `savetoroblox` GitHub Actions workflow per Section 8: create the Roblox Open Cloud API key with `universe-places` write access, register `ROBLOX_API_KEY` (secret) and `ROBLOX_UNIVERSE_ID`/`ROBLOX_STAGING_PLACE_ID`/`ROBLOX_PRODUCTION_PLACE_ID` (variables), and add `.github/workflows/savetoroblox.yml`.
+- Dry-run `savetoroblox` against the staging place target first; confirm the returned `versionNumber` matches what's visible in Studio before ever running it against production.
 - Final QA pass across all phases' acceptance criteria before publishing.
 
 Acceptance criteria:
 - All previous phase acceptance criteria still pass after integration.
 - No unhandled errors in server output during a full simulated round with max players.
+- `savetoroblox` successfully publishes to the staging place via manual dispatch, confirmed by version number and by opening the staging place in Studio afterward.
 
 ## 6. Items Left to Implementer Discretion (not blocking, but call these out when reached)
 
@@ -251,3 +255,59 @@ Acceptance criteria:
 - [ ] Zombie weapon-variant spawn odds verified statistically (not just "all three variants appeared once").
 - [ ] Head-thrower instant-kill splash verified server-authoritative: a client cannot claim survival if server-side splash logic says otherwise, and vice versa.
 - [ ] Head-thrower death confirmed to apply the same death penalty path as every other death cause (no divergent code path skipped in testing).
+
+## 8. Release / Deployment Plan
+
+Publishing to Roblox is handled by a GitHub Actions workflow named **`savetoroblox`** (`.github/workflows/savetoroblox.yml`). This section specifies how it authenticates, what it publishes, and how it's triggered. See `getting-started.md` Section 5 for the manual/first-time publish path via Studio — this section covers the automated path once the project is Rojo-managed.
+
+### 8.1 Authentication: Roblox Open Cloud API key
+
+Publishing is done via Roblox's official **Open Cloud** Place Publishing API, not a `.ROBLOSECURITY` cookie — cookie-based publishing is an older, unofficial pattern that carries a full account session (broader access than needed) and is more fragile against Roblox-side changes.
+
+1. In the **Creator Dashboard**, create an API key scoped to this experience only (not account-wide).
+2. Under **Access Permissions**, add **`universe-places`** and enable the **Write** operation for this specific universe. Do not grant broader scopes than publishing requires.
+3. Store the key as a GitHub Actions **repository secret** named `ROBLOX_API_KEY`. Never commit it, never print it in workflow logs.
+4. Rotate the key if it's ever exposed (e.g. accidentally logged, or a workflow file change makes you unsure whether it leaked).
+
+### 8.2 Publish targets: staging vs. production
+
+Per the getting-started doc's guidance to keep the experience private until ready, `savetoroblox` supports publishing to **two different places**, selected explicitly at run time — a testing/staging place and the real production place. This avoids the failure mode where the only way to test a build is to push it to the place real players can join.
+
+Repository configuration needed:
+- `ROBLOX_UNIVERSE_ID` — GitHub Actions **variable** (not secret; universe ID isn't sensitive), shared across both targets since staging and production places should live in the same universe (multi-place universe) unless there's a specific reason to separate them.
+- `ROBLOX_STAGING_PLACE_ID` — variable, the private/testing place.
+- `ROBLOX_PRODUCTION_PLACE_ID` — variable, the public place real players join.
+- `ROBLOX_API_KEY` — secret (Section 8.1), used for both targets. If tighter separation is wanted later (e.g. a key that can only touch staging), split into `ROBLOX_STAGING_API_KEY` / `ROBLOX_PRODUCTION_API_KEY` — not needed at this project's current scale.
+
+### 8.3 Trigger: manual dispatch only
+
+`savetoroblox` runs on **`workflow_dispatch`** only — there is no automatic publish on push or merge to `main`. This is a deliberate choice while the game is pre-launch and iterating quickly: a bad merge should never be able to reach players (or even the staging place) without someone deciding to run the workflow. Revisit this once the core loop (Phases 1-3) is stable — an auto-publish-to-staging-on-merge (never production) could be a reasonable fast-follow, but is out of scope for now per YAGNI.
+
+The workflow takes one required input:
+- `target`: choice of `staging` or `production`, selecting which place ID (Section 8.2) to publish to.
+
+### 8.4 Workflow steps
+
+No third-party GitHub Action is used for the actual publish step — the only community action found for this (`Krultu/rbx-publish`) is unmaintained (last updated 2022, no adoption) and its own README references a different, nonexistent action name, which is a bad sign for trusting it as a supply-chain dependency. Instead, `savetoroblox` calls Roblox's documented Open Cloud endpoint directly via `curl`, which is fully auditable in the workflow file itself and has no external dependency to go stale.
+
+1. **Checkout** the repository (`actions/checkout`).
+2. **Install Rojo** via `mise` (matching this project's local tooling, see `getting-started.md` Section 3) so the built place file is produced the same way locally and in CI.
+3. **Build the place file**: `rojo build default.project.json -o place.rbxl`.
+4. **Resolve the target place ID** from the `target` input (`staging` → `ROBLOX_STAGING_PLACE_ID`, `production` → `ROBLOX_PRODUCTION_PLACE_ID`).
+5. **Publish via Open Cloud**:
+   ```bash
+   curl --fail --silent --show-error --location \
+     --request POST \
+     "https://apis.roblox.com/universes/v1/${UNIVERSE_ID}/places/${PLACE_ID}/versions?versionType=Published" \
+     --header "x-api-key: ${ROBLOX_API_KEY}" \
+     --header "Content-Type: application/octet-stream" \
+     --data-binary @place.rbxl
+   ```
+   `--fail` ensures a non-2xx response fails the workflow rather than silently succeeding. A successful response body is `{ "versionNumber": <n> }`.
+6. **Surface the result**: log the returned `versionNumber` in the workflow summary so it's easy to confirm what actually got published and when.
+
+### 8.5 Safety notes specific to this workflow
+
+- **Production publishes are a deliberate, visible action.** Because the trigger is manual with an explicit `target` choice, publishing to production always requires a human to pick "production" from the dropdown — there's no path where a routine merge accidentally goes live.
+- **The API key should never be echoed to logs.** GitHub Actions automatically masks registered secrets in logs, but avoid `curl --verbose` in the final workflow (it can leak headers) — use `--fail --silent --show-error` instead, which reports failures without dumping full request/response detail.
+- **Rebuild, don't reuse, the place file per run.** Always run `rojo build` fresh in the workflow rather than publishing a place file built on someone's local machine, so what's published is guaranteed to match the commit that triggered the run.
