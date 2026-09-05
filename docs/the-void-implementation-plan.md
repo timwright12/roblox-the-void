@@ -16,6 +16,7 @@ This document assumes the product brief (`the-void-product-brief.md`) as the sou
 - Robots: at least 3 tiers (Scout / Grunt / Heavy) by size, HP, damage, speed, XP reward.
 - Zombies: a second enemy family alongside robots, sharing the same enemy data table and spawner. Base zombie is melee-only; weapon variant (punch/sword/head-thrower) is rolled once at spawn time and fixed for that zombie's lifetime. Head-thrower is a 1% spawn chance, ranged, telegraphed (~1s wind-up), and instant-kills any player caught in its explosion splash radius on landing — this bypasses normal damage rolls. Death from a head-thrower explosion uses the same death penalty as any other death (no special-case handling).
 - Map: single dense forest, sized for 5–10 players, with terrain landmarks to aid navigation.
+- Deployment: publishing to Roblox is done via a GitHub Actions workflow named `savetoroblox`, manually triggered, authenticated with a Roblox Open Cloud API key, supporting both a staging and a production place target. See Section 8.
 
 If anything in this plan conflicts with the brief, the brief wins — flag the conflict rather than silently picking one.
 
@@ -78,6 +79,7 @@ If Rojo isn't already set up in the target environment, that's the first task �
 Notes for the implementer:
 - `xp` is the spendable/level-progress pool. `totalXp` is a separate lifetime counter — never let the two get confused, since `xp` decreases on weapon purchase but `totalXp` must not.
 - Save on: player leaving, every ~2 minutes during play, and on round end. Wrap all DataStore calls with retry logic (exponential backoff, max 3-5 attempts) and never let a failed save silently swallow player progress — log it.
+- **Implementation decision (Phase 2):** `DataManager` uses [ProfileStore](https://github.com/MadStudioRoblox/ProfileStore) (`lm-loleris/profilestore`, vendored via Wally) rather than hand-rolling the retry/backoff logic described above. Current Roblox community consensus (and Roblox's own guidance) is to use a maintained abstraction for this rather than hand-roll it — ProfileStore additionally handles session locking (preventing the classic multi-server data-loss/dupe race that a hand-rolled retry wrapper would not address unless built separately). This was an explicit approval from the design owner to add an external dependency. `DataManager`'s responsibility (single owner of persistent player data, full record including `xp`/`totalXp`/`level`/`ownedWeapons`/`equippedWeapon`/`stats`) is unchanged — only the internal mechanism differs from the original plan wording.
 
 ### 2.2 Weapon Table (ReplicatedStorage/Data/WeaponTable.lua)
 
@@ -148,7 +150,7 @@ Define all of these in `RemoteDefinitions.lua` so both sides reference the same 
 | `ZombieHeadThrowTelegraph` | RemoteEvent | Server → Client | `{ zombieId, windUpSeconds }` | Fired when a head-thrower zombie begins its wind-up, so clients can play the detach animation/warning cue during the telegraph window. |
 | `PurchaseWeapon` | RemoteFunction | Client → Server | `{ weaponId }` → returns `{ success, reason?, newXp?, ownedWeapons? }` | Shop purchase request; server is sole authority on success/failure. |
 | `EquipWeapon` | RemoteEvent | Client → Server | `{ weaponId }` | Switch equipped weapon among owned weapons (no XP cost). |
-| `RoundStateUpdate` | RemoteEvent | Server → Client | `{ state, quotaTarget, quotaProgress, timeRemaining }` | Push round lobby/active/ended state and progress to all clients in the round. |
+| `RoundStateUpdate` | RemoteEvent | Server → Client | `{ state, quotaTarget, quotaProgress, timeRemaining, reason?, summaryByPlayer? }` | Push round lobby/active/ended state and progress to all clients in the round. `reason` (`"QuotaMet"` \| `"Timeout"`) and `summaryByPlayer` (keyed by `tostring(UserId)`, each `{ kills, xpEarned }` for that round) are only present when `state == "Ended"` — added in Phase 3 to carry the end-of-round summary without a separate remote. |
 | `PlayerDied` | RemoteEvent | Server → Client | `{ droppedWeaponId, respawnWeaponId, causeOfDeath }` | Inform client of death consequences for UI messaging. `causeOfDeath` includes the head-thrower splash case so the client can show appropriate feedback, but the death penalty itself does not vary by cause. |
 | `RequestPlayerState` | RemoteFunction | Client → Server | none → returns full player data snapshot | Used on join/UI open to sync client state without guessing. |
 
@@ -188,14 +190,14 @@ Acceptance criteria:
 
 ### Phase 3 — Rounds & Social
 Tasks:
-- Build `RoundManager`: lobby state, round start, quota calculation `(quotaPerPlayer * playerCount)`, round end on quota-met or timer expiry.
-- Push `RoundStateUpdate` to clients for HUD display of quota progress and time remaining.
-- Verify friend-join behavior: confirm Roblox's native "Join" via friends list places joining players into the same server, and if mid-round, into the same round state (not a stale lobby).
-- End-of-round summary UI (kills, XP earned this round, quota result).
+- Build `RoundManager`: lobby state, round start, quota calculation `(quotaPerPlayer * playerCount)`, round end on quota-met or timer expiry. **Implemented** — `quotaPerPlayer = 10`, backstop timer = 10 minutes (starting placeholders, confirmed with design owner; real tuning is Phase 5).
+- Push `RoundStateUpdate` to clients for HUD display of quota progress and time remaining. **Implemented** — pushed every second while active, plus immediately on any state transition. A player joining mid-round receives current state via this same periodic push (no separate "current state" remote needed — worst case is a ~1s delay before their HUD reflects live round state).
+- Verify friend-join behavior: confirm Roblox's native "Join" via friends list places joining players into the same server, and if mid-round, into the same round state (not a stale lobby). **Not verifiable from a code session** — this requires a published place and at least two real Roblox accounts testing live. No code in this project alters or interferes with Roblox's default friend-join behavior (no reserved servers/teleport logic exists), so this should work by default, but it must still be manually confirmed per the acceptance criteria below before considering Phase 3 done.
+- End-of-round summary UI (kills, XP earned this round, quota result). **Implemented** — `RoundStateUpdate`'s payload gained optional `reason`/`summaryByPlayer` fields present only when `state == "Ended"` (see Section 4) rather than a new remote.
 
 Acceptance criteria:
-- A round with 5 players and a round with 10 players both feel appropriately challenging — i.e., the per-player quota scaling actually produces comparable difficulty (this needs at least manual dual-test, ideally with bots or multiple test accounts).
-- A friend joining via Roblox's friend-join lands in the same active round, not a separate server instance.
+- A round with 5 players and a round with 10 players both feel appropriately challenging — i.e., the per-player quota scaling actually produces comparable difficulty (this needs at least manual dual-test, ideally with bots or multiple test accounts). **Not verifiable from a code session — requires live playtesting.**
+- A friend joining via Roblox's friend-join lands in the same active round, not a separate server instance. **Not verifiable from a code session — requires a published place and two real accounts.**
 
 ### Phase 4 — Forest Map Polish
 Tasks:
@@ -217,7 +219,7 @@ Tasks:
 - Actively look for degenerate strategies: is always-saving-XP-for-levels or always-buying-weapons strictly dominant? Adjust weapon costs/power if so.
 
 Acceptance criteria:
-- No single strategy (pure-save vs. pure-spend) is obviously optimal in playtesting feedback.
+- No single strategy (pure-save vs. pure-spend) is favored in playtesting feedback.
 - Round completion rate (quota met before timeout) sits in a target healthy range — recommend defining this target explicitly before tuning (e.g., 70-85% of rounds complete successfully) rather than tuning blind.
 - Playtesters report the head-thrower as a tense/dangerous encounter, not a random unavoidable death — capture this feedback explicitly, don't infer it from other metrics.
 
@@ -226,15 +228,18 @@ Tasks:
 - Server load test: simulate 10 players + full robot and zombie spawn load, watch for script performance issues.
 - DataStore failure handling: simulate DataStore outage, confirm player data isn't silently lost (retry queue, or at minimum clear error logging).
 - Add lightweight analytics events: round start/end, completion vs timeout, average session length, per-weapon purchase frequency (useful data for future weapon balance and potential monetization decisions, even though monetization is out of scope for v1).
+- Set up the `savetoroblox` GitHub Actions workflow per Section 8: create the Roblox Open Cloud API key with `universe-places` write access, register `ROBLOX_API_KEY` (secret) and `ROBLOX_UNIVERSE_ID`/`ROBLOX_STAGING_PLACE_ID`/`ROBLOX_PRODUCTION_PLACE_ID` (variables), and add `.github/workflows/savetoroblox.yml`.
+- Dry-run `savetoroblox` against the staging place target first; confirm the returned `versionNumber` matches what's visible in Studio before ever running it against production.
 - Final QA pass across all phases' acceptance criteria before publishing.
 
 Acceptance criteria:
 - All previous phase acceptance criteria still pass after integration.
 - No unhandled errors in server output during a full simulated round with max players.
+- `savetoroblox` successfully publishes to the staging place via manual dispatch, confirmed by version number and by opening the staging place in Studio afterward.
 
 ## 6. Items Left to Implementer Discretion (not blocking, but call these out when reached)
 
-- Exact weapon pickup despawn timer (Phase 2) — recommend 60-90s, confirm with design owner if precision matters.
+- ~~Exact weapon pickup despawn timer (Phase 2)~~ — **Resolved: 60 seconds**, confirmed with design owner during Phase 2 implementation.
 - Concrete FPS/performance target for the finished map (Phase 4) — depends on target device mix (PC/mobile/console), not yet specified.
 - Target round-completion rate for quota tuning (Phase 5) — recommend defining a number rather than tuning by feel.
 - Robot HP/damage and weapon damage values in Sections 2.2/2.3 are placeholder starting numbers, not final balance — real tuning happens in Phase 5 against actual playtest data.
@@ -243,11 +248,88 @@ Acceptance criteria:
 
 ## 7. Testing Checklist (run before considering any phase "done")
 
-- [ ] All damage/XP/purchase logic verified server-authoritative (attempt to call remotes with invalid/spoofed data and confirm server rejects).
-- [ ] DataStore save/load verified across a server restart, not just in the same session.
-- [ ] Round quota scaling manually verified at both ends of the 5-10 player range.
+Items marked **(automated)** are covered by the Lune/frktest suite (Section 7.1) and can be verified by running it — no manual repro needed. Everything else still requires live testing in Studio or a published place.
+
+- [x] All damage/XP/purchase logic verified server-authoritative (attempt to call remotes with invalid/spoofed data and confirm server rejects). **(automated — ShopManager.spec.luau, CombatManager.spec.luau call the validation functions directly, which is exactly the "spoofed call" scenario)**
+- [ ] DataStore save/load verified across a server restart, not just in the same session. **Not automatable** — the test suite uses a fake ProfileStore (DataManager.spec.luau) to verify DataManager's own load/save/session-lifecycle logic, but that can't substitute for confirming the real DataStore survives an actual server restart.
+- [ ] Round quota scaling manually verified at both ends of the 5-10 player range. Requires live playtesting (see Section 5 Phase 3 acceptance criteria).
 - [ ] Friend-join tested with at least two real accounts, not assumed from documentation.
-- [ ] No client-trusted values used for anything that affects XP, level, or ownership.
-- [ ] Zombie weapon-variant spawn odds verified statistically (not just "all three variants appeared once").
-- [ ] Head-thrower instant-kill splash verified server-authoritative: a client cannot claim survival if server-side splash logic says otherwise, and vice versa.
-- [ ] Head-thrower death confirmed to apply the same death penalty path as every other death cause (no divergent code path skipped in testing).
+- [x] No client-trusted values used for anything that affects XP, level, or ownership. **(automated, by construction — every test calls server-side functions directly with attacker-controlled-shaped input and confirms rejection, rather than trusting client state)**
+- [x] Zombie weapon-variant spawn odds verified statistically (not just "all three variants appeared once"). **(automated — EnemySpawner.spec.luau, 10,000-sample distribution check)**
+- [x] Head-thrower instant-kill splash verified server-authoritative: a client cannot claim survival if server-side splash logic says otherwise, and vice versa. **(automated — CombatManager.spec.luau covers telegraph → splash-kill, player-left-radius-survives, and zombie-died-mid-windup-cancels-explosion)**
+- [x] Head-thrower death confirmed to apply the same death penalty path as every other death cause (no divergent code path skipped in testing). **(automated — CombatManager's instantKillPlayer uses the same TakeDamage(math.huge) → Humanoid.Died path as normal combat damage, and WeaponPickupManager.spec.luau tests HandlePlayerDeath directly, not conditioned on cause)**
+
+### 7.1 Running the automated test suite
+
+Tests run under [Lune](https://github.com/lune-org/lune) (a standalone Luau runtime — chosen over TestEZ/Studio specifically so tests run without opening Studio) using [frktest](https://github.com/itsfrank/frktest) as the assertion/runner library. Neither runs inside the actual Roblox game — see `tests/mocks/RobloxEnv.luau` for the fake `game`/`Players`/`Instance`/`Humanoid` environment that lets unmodified production modules load and run outside Roblox.
+
+```
+mise exec -- lune run tests/_run.luau
+```
+
+(or just `lune run tests/_run.luau` once `mise activate` is set up per `getting-started.md` Section 3.2).
+
+Coverage: `XPManager`, `ShopManager`, `RoundManager`, `EnemySpawner`, `CombatManager`, `WeaponPickupManager`, `DataManager` — all seven non-trivial server modules. Client controllers and `RemoteDefinitions` are not covered (client-side UI logic and remote-instance creation aren't meaningfully unit-testable without a real Roblox client).
+
+**Known limitations of this approach** (accepted trade-offs, not bugs):
+- `CombatManager.Init`/`RoundManager.Init` each start an infinite `task.spawn` polling loop, which has no natural exit under Lune (a real Roblox server just runs forever, so this was never a problem in production). Tests never call `.Init()` — they set the same fields `Init()` would set directly, and call the underlying logic functions (`HandleAttackIntent`, `_tickOneEnemyAttack`, `RecordKill`, etc.) directly instead.
+- `@lune/roblox`'s `Instance.new` does not simulate `Humanoid`-specific behavior (`TakeDamage`, `.Died` firing) — `tests/mocks/FakeHumanoid.luau` implements exactly that surface as a hand-built fake, not a real Roblox Humanoid.
+- Globally reassigning Luau's `require` function breaks relative-path resolution for *other* unrelated `require()` calls happening anywhere else in the process (confirmed by direct experiment) — so the fake-module-unwrapping trick used to satisfy `require(ReplicatedStorage.Data.EnemyTable)`-style calls is scoped narrowly to the exact duration of loading one production module (`RobloxEnv.requireModule`), not left on globally.
+- A handful of tests use real `task.wait()` sleeps (e.g. waiting out a weapon cooldown or a zombie's wind-up) rather than a fake/advanceable clock, since `CombatManager`/`RoundManager`/`EnemySpawner` read wall-clock time directly (`os.clock()`) rather than through an injectable clock dependency. This makes those specific tests slightly slower and, in principle, sensitive to extreme system load — accepted as disproportionate to fix (would mean adding a clock abstraction to production code) given the suite has been stress-tested (dozens of consecutive clean runs) with no observed flakiness from this cause.
+- `EnemySpawner` keeps its live-enemy state as module-level upvalues, and Lune (like Roblox) caches a required module — so every spec file in the same test process shares the same `EnemySpawner` instance. `EnemySpawner._resetForTests()` (test-only; a real server never calls it) clears that state and is called once at the top of every spec file that requires `EnemySpawner`, so one file's spawned enemies can't leak into another's assertions.
+
+## 8. Release / Deployment Plan
+
+Publishing to Roblox is handled by a GitHub Actions workflow named **`savetoroblox`** (`.github/workflows/savetoroblox.yml`). This section specifies how it authenticates, what it publishes, and how it's triggered. See `getting-started.md` Section 5 for the manual/first-time publish path via Studio — this section covers the automated path once the project is Rojo-managed.
+
+### 8.1 Authentication: Roblox Open Cloud API key
+
+Publishing is done via Roblox's official **Open Cloud** Place Publishing API, not a `.ROBLOSECURITY` cookie — cookie-based publishing is an older, unofficial pattern that carries a full account session (broader access than needed) and is more fragile against Roblox-side changes.
+
+1. In the **Creator Dashboard**, create an API key scoped to this experience only (not account-wide).
+2. Under **Access Permissions**, add **`universe-places`** and enable the **Write** operation for this specific universe. Do not grant broader scopes than publishing requires.
+3. Store the key as a GitHub Actions **repository secret** named `ROBLOX_API_KEY`. Never commit it, never print it in workflow logs.
+4. Rotate the key if it's ever exposed (e.g. accidentally logged, or a workflow file change makes you unsure whether it leaked).
+
+### 8.2 Publish targets: staging vs. production
+
+Per the getting-started doc's guidance to keep the experience private until ready, `savetoroblox` supports publishing to **two different places**, selected explicitly at run time — a testing/staging place and the real production place. This avoids the failure mode where the only way to test a build is to push it to the place real players can join.
+
+Repository configuration needed:
+- `ROBLOX_UNIVERSE_ID` — GitHub Actions **variable** (not secret; universe ID isn't sensitive), shared across both targets since staging and production places should live in the same universe (multi-place universe) unless there's a specific reason to separate them.
+- `ROBLOX_STAGING_PLACE_ID` — variable, the private/testing place.
+- `ROBLOX_PRODUCTION_PLACE_ID` — variable, the public place real players join.
+- `ROBLOX_API_KEY` — secret (Section 8.1), used for both targets. If tighter separation is wanted later (e.g. a key that can only touch staging), split into `ROBLOX_STAGING_API_KEY` / `ROBLOX_PRODUCTION_API_KEY` — not needed at this project's current scale.
+
+### 8.3 Trigger: manual dispatch only
+
+`savetoroblox` runs on **`workflow_dispatch`** only — there is no automatic publish on push or merge to `main`. This is a deliberate choice while the game is pre-launch and iterating quickly: a bad merge should never be able to reach players (or even the staging place) without someone deciding to run the workflow. Revisit this once the core loop (Phases 1-3) is stable — an auto-publish-to-staging-on-merge (never production) could be a reasonable fast-follow, but is out of scope for now per YAGNI.
+
+The workflow takes one required input:
+- `target`: choice of `staging` or `production`, selecting which place ID (Section 8.2) to publish to.
+
+### 8.4 Workflow steps
+
+No third-party GitHub Action is used for the actual publish step — the only community action found for this (`Krultu/rbx-publish`) is unmaintained (last updated 2022, no adoption) and its own README references a different, nonexistent action name, which is a bad sign for trusting it as a supply-chain dependency. Instead, `savetoroblox` calls Roblox's documented Open Cloud endpoint directly via `curl`, which is fully auditable in the workflow file itself and has no external dependency to go stale.
+
+1. **Checkout** the repository (`actions/checkout`).
+2. **Install Rojo** via `mise` (matching this project's local tooling, see `getting-started.md` Section 3) so the built place file is produced the same way locally and in CI.
+3. **Build the place file**: `rojo build default.project.json -o place.rbxl`.
+4. **Resolve the target place ID** from the `target` input (`staging` → `ROBLOX_STAGING_PLACE_ID`, `production` → `ROBLOX_PRODUCTION_PLACE_ID`).
+5. **Publish via Open Cloud**:
+   ```bash
+   curl --fail --silent --show-error --location \
+     --request POST \
+     "https://apis.roblox.com/universes/v1/${UNIVERSE_ID}/places/${PLACE_ID}/versions?versionType=Published" \
+     --header "x-api-key: ${ROBLOX_API_KEY}" \
+     --header "Content-Type: application/octet-stream" \
+     --data-binary @place.rbxl
+   ```
+   `--fail` ensures a non-2xx response fails the workflow rather than silently succeeding. A successful response body is `{ "versionNumber": <n> }`.
+6. **Surface the result**: log the returned `versionNumber` in the workflow summary so it's easy to confirm what actually got published and when.
+
+### 8.5 Safety notes specific to this workflow
+
+- **Production publishes are a deliberate, visible action.** Because the trigger is manual with an explicit `target` choice, publishing to production always requires a human to pick "production" from the dropdown — there's no path where a routine merge accidentally goes live.
+- **The API key should never be echoed to logs.** GitHub Actions automatically masks registered secrets in logs, but avoid `curl --verbose` in the final workflow (it can leak headers) — use `--fail --silent --show-error` instead, which reports failures without dumping full request/response detail.
+- **Rebuild, don't reuse, the place file per run.** Always run `rojo build` fresh in the workflow rather than publishing a place file built on someone's local machine, so what's published is guaranteed to match the commit that triggered the run.

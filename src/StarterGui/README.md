@@ -1,0 +1,1 @@
+UI screens (HUD, Shop, RoundEnd) live here. These are typically built as Roblox `ScreenGui` instances directly in Studio (or synced from `.rbxmx` model files), not authored as plain Lua — Rojo can sync UI trees, but the actual widget layout is usually built visually. See `the-void-implementation-plan.md` Section 1.

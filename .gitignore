@@ -18,6 +18,7 @@ sourcemap.json
 # Wally (Roblox Package Manager) dependencies
 /Packages/
 /ServerPackages/
+/DevPackages/
 
 # Pesde (Alternative Package Manager) dependencies
 /.pesde/
@@ -58,3 +59,6 @@ Desktop.ini
 # Linux / Miscellaneous
 *~
 *.log
+
+# Local deletion staging area (see project conventions)
+.tim-please-delete/

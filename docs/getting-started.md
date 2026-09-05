@@ -30,9 +30,15 @@ Rojo runs a local sync server that watches your project's file tree (the `src/` 
 
 Two pieces are required — the CLI tool and the Studio plugin:
 
-1. **Rojo CLI**: Install via [Aftman](https://github.com/LPGhatguy/aftman) (Roblox's recommended toolchain manager) or `cargo install rojo` if you have Rust installed, or download a prebuilt binary from the [Rojo GitHub releases page](https://github.com/rojo-rbx/rojo/releases). Aftman is the path Roblox's own docs recommend if you don't already have a preferred method — it also makes future tool-version pinning easier for this project.
+1. **Rojo CLI**: Install via a toolchain manager so the version is pinned and reproducible. Roblox's ecosystem historically pointed to **Aftman**, but Aftman's upstream repo is archived/unmaintained — use **[mise](https://mise.jdx.dev)** instead (actively maintained, and Homebrew-installable: `brew install mise`). Once `mise` is installed and activated in your shell (`eval "$(mise activate zsh)"` in `~/.zshrc`, or the equivalent for your shell), install Rojo with:
+   ```
+   mise use -g "github:rojo-rbx/rojo@latest"
+   ```
+   This pulls the CLI binary directly from Rojo's GitHub releases (with attestation verification) rather than building from source — much faster than compiling. If you don't want a toolchain manager at all, `brew install rojo` or a manual download from the [Rojo GitHub releases page](https://github.com/rojo-rbx/rojo/releases) both work too, just without version pinning across machines.
 2. **Rojo Studio Plugin**: Inside Studio, go to the **Plugins** tab → **Manage Plugins** (or the Toolbox) and search for "Rojo," or install it via the CLI with `rojo plugin install` (this drops the plugin into Studio's local plugins folder automatically — simplest option).
 3. Verify install: run `rojo --version` in a terminal to confirm the CLI is on your PATH.
+
+**Note on Apple Silicon vs. Intel Macs:** installing `mise` itself via Homebrew is quick on Apple Silicon (a prebuilt bottle exists), but on an unsupported/older platform combination Homebrew may fall back to compiling `mise` from Rust source, which can take 30+ minutes. This is a one-time cost — Rojo itself installs in seconds afterward since it's a direct binary download, not a source build.
 
 ### 3.3 Setting up this project with Rojo
 
@@ -47,11 +53,37 @@ The implementation plan already specifies the target file tree (`default.project
 
 **Important workflow note going forward:** once Rojo is wired up, do not hand-author scripts inside Studio's Explorer/script editor for anything that should live in `src/` — changes made directly in Studio to a Rojo-synced tree can be overwritten or cause sync conflicts. Studio-side edits should be limited to things Rojo doesn't manage well by default: map geometry, terrain, part placement, lighting, and non-scripted instances. Confirm this boundary as the project grows; if it becomes unclear which side owns what, that's worth raising rather than guessing.
 
+### 3.4 Installing Wally (Roblox Package Manager)
+
+This project uses [Wally](https://github.com/UpliftGames/wally) to manage external Lua dependencies (currently just [ProfileStore](https://github.com/MadStudioRoblox/ProfileStore) for DataStore persistence — see the-void-implementation-plan.md Section 2.1). Install via `mise`, same pattern as Rojo:
+
+```
+mise use -g "github:UpliftGames/wally@latest"
+```
+
+Then, from the repo root, install the project's dependencies:
+
+```
+mise exec -- wally install
+```
+
+This reads `wally.toml` and downloads packages into `ServerPackages/` (and `Packages/` for anything shared client/server) — both directories are gitignored since they're reproducible from `wally.toml`/`wally.lock`, which **are** committed. Run `wally install` again any time `wally.toml` changes or after a fresh clone, before opening the project in Studio — `DataManager` and anything else depending on a Wally package will error on require until this has been run at least once.
+
 ## 4. Building and Testing Locally
 
 - Use Studio's **Play** button (or **Play Here** / **Play as Server+Clients** for multiplayer-relevant testing) to run the game in-editor. For anything server-authoritative (which, per the implementation plan, is nearly everything — combat, XP, purchases), use **Play as Server+Clients** or **Start Server** with multiple **Start Player** clients so you're actually testing client/server boundaries, not just a single local client that trivially trusts itself.
 - Studio's **Output** window shows server and client print/warn/error output — this is where you'll verify server-authoritative behavior (e.g., confirming XP is calculated server-side, per the testing checklist in the implementation plan).
 - For quick iteration on scripts, keep `rojo serve` running in the background and just re-enter Play mode in Studio after each save — no need to restart Rojo itself between test runs.
+
+### 4.1 Running the automated test suite (no Studio needed)
+
+Server module logic (combat, XP, shop, rounds, spawning, weapon pickups, persistence) has an automated test suite that runs entirely outside Roblox via [Lune](https://github.com/lune-org/lune), a standalone Luau runtime. This is separate from — and much faster than — testing in Studio, and doesn't require a place to be open.
+
+1. Install Lune and Wally, same pattern as Rojo (Section 3.2/3.4): `mise use -g "github:lune-org/lune@latest"`.
+2. Install dependencies (frktest, the test framework, is a dev-dependency in `wally.toml`): `mise exec -- wally install`.
+3. Run the suite: `mise exec -- lune run tests/_run.luau`.
+
+See the-void-implementation-plan.md Section 7.1 for what's covered and the known limitations of testing Roblox server code outside Roblox (e.g. `Humanoid` behavior is hand-mocked, since Lune's Roblox datatype library doesn't simulate it).
 
 ## 5. Publishing to Roblox (Getting a Build Live)
 
