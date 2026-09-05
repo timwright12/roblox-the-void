@@ -1,1 +1,60 @@
+# ==============================================================================
+# Roblox Place & Studio Files
+# ==============================================================================
+# It is best practice to keep binary files out of Git and sync via code instead.
+*.rbxl
+*.rbxlx
+
+# Roblox Studio lock files (generated while a place file is open)
+*.rbxl.lock
+*.rbxlx.lock
+
+# Auto-generated source maps used by Rojo and external tools
+sourcemap.json
+
+# ==============================================================================
+# Package Managers & Tooling
+# ==============================================================================
+# Wally (Roblox Package Manager) dependencies
+/Packages/
+/ServerPackages/
+
+# Pesde (Alternative Package Manager) dependencies
+/.pesde/
+
+# Aftman / Foreman (Toolchain managers) local binaries and caches
+/.aftman/
+/.foreman/
+
+# ==============================================================================
+# Environment & Secret Files
+# ==============================================================================
+# Never commit your Roblox cookies, API keys, or deployment tokens
+.env
+.env.*
+!.env.example
+
+# ==============================================================================
+# Code Editors & System Files
+# ==============================================================================
+# Visual Studio Code
+.vscode/*
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+*.code-workspace
+
+# Mac/OSX system files
 .DS_Store
+.AppleDouble
+.LSOverride
+
+# Windows system files
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# Linux / Miscellaneous
+*~
+*.log
