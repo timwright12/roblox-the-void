@@ -53,6 +53,10 @@ New to Roblox Studio or this project? [`docs/getting-started.md`](docs/getting-s
 
 Currently in Phase 5 (playtesting & tuning) of the implementation plan — the core loop, shop, rounds, and forest map are built; remaining work is balance tuning, enemy visuals/AI polish, and Phase 6 launch prep (analytics, load testing, deployment). See [`docs/the-void-implementation-plan.md`](docs/the-void-implementation-plan.md) Section 5 for the full phase-by-phase breakdown and acceptance criteria.
 
+## Contributing
+
+Bug reports, suggestions, and pull requests are welcome — see [CONTRIBUTING.md](CONTRIBUTING.md) for branch conventions, running tests locally, and what to expect from review. Found a security issue (an exploit, a way to bypass server-side validation, a DataStore/dupe bug)? See [SECURITY.md](SECURITY.md) instead of opening a public issue.
+
 ## License
 
-This repository is public for educational and portfolio purposes. All rights reserved. You may view and fork this repository, but you do not have permission to redistribute, modify, or host this game (or its assets) on Roblox or any other platform for commercial or non-commercial use.
+This repository is public for educational and portfolio purposes. All rights reserved. You may view, fork, and modify this repository for the purpose of submitting changes back via pull request. You do not have permission to redistribute, modify, or host this game (or its assets) on Roblox or any other platform for commercial or non-commercial use, outside of contributing to this repository.
