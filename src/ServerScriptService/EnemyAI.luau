@@ -77,11 +77,14 @@ local function moveTowards(enemy, destination: Vector3)
 		path:ComputeAsync(origin, destination)
 	end)
 
+	print("DEBUG EnemyAI moveTowards:", enemy.enemyName, "ok=", ok, "status=", path.Status)
+
 	if not ok or path.Status ~= Enum.PathStatus.Success then
 		return
 	end
 
 	local waypoints = path:GetWaypoints()
+	print("DEBUG EnemyAI waypoints count=", #waypoints)
 	if waypoints[2] then
 		enemy.humanoid:MoveTo(waypoints[2].Position)
 	end
@@ -99,6 +102,7 @@ function EnemyAI.Tick()
 		local enemyPosition = enemy.model.PrimaryPart.Position
 		local nextState = EnemyAI._nextState(currentState, enemyPosition, players)
 		stateByEnemyId[enemy.id] = nextState
+		print("DEBUG EnemyAI tick:", enemy.enemyName, currentState, "->", nextState, "pos=", enemyPosition, "walkSpeed=", enemy.humanoid.WalkSpeed)
 
 		if nextState == "Chasing" then
 			local lastCompute = lastPathComputeAt[enemy.id]
