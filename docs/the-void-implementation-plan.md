@@ -132,6 +132,7 @@ return {
 | `ShopManager` | Server | Validate and process weapon purchase requests: check XP balance, deduct XP, add to `ownedWeapons`, set `equippedWeapon`. Rejects purchases server-side even if client UI misbehaves. |
 | `CombatManager` | Server | Authoritative damage resolution for player-vs-enemy hits, for both robots and zombies. Client sends attack *intent*, server validates range/cooldown and applies damage. Also owns the zombie head-thrower projectile: server rolls/tracks the variant at spawn (via `EnemySpawner`), runs the telegraph timer, spawns the head projectile, and on impact resolves the splash radius as an instant kill (bypassing normal damage rolls) for any player caught inside it. |
 | `EnemySpawner` | Server | Spawns robots and zombies by tier/type at spawn points, rolls a zombie's weapon variant (punch/sword/head-thrower) once at spawn time per `EnemyTable` odds, respawns on timer, tracks live enemy count for quota purposes. |
+| `EnemyAI` | Server | Aggro/chase behavior once a player enters an enemy's detection radius — see Section 9. Owns each enemy's chase state (idle/chasing/returning) and pathfinding; `CombatManager` still owns whether an attack in range actually lands. |
 | `RoundManager` | Server | Round lifecycle: lobby → start → track quota progress → end (win or timeout) → return to lobby. Calculates per-player quota scaled to team size at round start. Quota counts kills of any enemy type (robot or zombie). |
 | `WeaponPickupManager` | Server | On player death, spawns a physical weapon pickup at death location, reverts player to base weapon; handles pickup interaction. |
 | `RemoteDefinitions` | Shared | Single place declaring every RemoteEvent/RemoteFunction so client and server reference the same names — avoids typo mismatches. |
@@ -334,3 +335,26 @@ No third-party GitHub Action is used for the actual publish step — the only co
 - **Production publishes are a deliberate, visible action.** Because the trigger is manual with an explicit `target` choice, publishing to production always requires a human to pick "production" from the dropdown — there's no path where a routine merge accidentally goes live.
 - **The API key should never be echoed to logs.** GitHub Actions automatically masks registered secrets in logs, but avoid `curl --verbose` in the final workflow (it can leak headers) — use `--fail --silent --show-error` instead, which reports failures without dumping full request/response detail.
 - **Rebuild, don't reuse, the place file per run.** Always run `rojo build` fresh in the workflow rather than publishing a place file built on someone's local machine, so what's published is guaranteed to match the commit that triggered the run.
+
+## 9. Enemy Chase AI
+
+Added after Phase 4 (real terrain + real enemy models existed by then, making stationary enemies feel inert rather than dangerous — every enemy could be damaged risk-free from outside its melee range with any ranged weapon). Originally deferred past Phase 2 (see `CombatManager.luau`'s Phase 2 header comment) specifically because it needed real map geometry to path against, which Phase 4 now provides.
+
+### 9.1 Trigger: aggro radius
+
+Each enemy tracks one of three states: `Idle` (at/returning to its spawn point), `Chasing` (pathing toward a player), or attacking (handled by `CombatManager`'s existing melee-range tick, unchanged). `EnemyAI` runs its own independent tick loop (same `task.spawn`/`task.wait` pattern as `CombatManager.TickEnemyAttacks`, but a separate loop — the two modules stay decoupled per Section 9.3, so `EnemyAI` doesn't reach into `CombatManager`'s private loop, and vice versa) at the same `ENEMY_ATTACK_CHECK_INTERVAL_SECONDS` cadence. On each tick, an `Idle` enemy checks distance to the nearest player:
+
+- Enters `Chasing` if a player is within `AGGRO_RADIUS_STUDS = 25` studs (comfortably beyond `ENEMY_MELEE_RANGE = 6`, so the enemy visibly closes distance before it can attack, and within typical ranged-weapon range — Crossbow 30, Longbow 45 — so a player who never melees still gets engaged).
+- A `Chasing` enemy that loses its target (player moved beyond `AGGRO_RADIUS_STUDS * 1.5` — a larger release radius than the trigger radius, so an enemy doesn't flicker between states at the boundary) returns to `Idle` and paths back to its original spawn point, rather than wandering permanently away from its spawn cluster. Returning to spawn (not simply stopping in place) matters for the Phase 4 acceptance criterion that finding enemies requires exploration — an enemy that chased a player across the map and stayed there would empty out that spawn cluster.
+
+### 9.2 Movement: PathfindingService
+
+While `Chasing`, `EnemyAI` computes a path via `PathfindingService:CreatePath` (default `AgentParameters`, no custom `AgentRadius`/`Costs` yet — a placeholder starting point, not tuned) to the target player's current `HumanoidRootPart.Position`, and walks the enemy's `Humanoid` along the returned waypoints via `MoveTo`. Because the player keeps moving, the path is recomputed on a shorter interval than the aggro check itself (every 1 second) rather than once — a stale path would walk the enemy to where the player *was*. `Path.Blocked` also triggers an immediate recompute rather than waiting for the next interval, so an enemy doesn't stand still against a moved obstacle for up to a full second.
+
+### 9.3 Interaction with existing combat
+
+`EnemyAI` only ever calls `Humanoid:MoveTo()` — it never resolves damage. Once an enemy is within `ENEMY_MELEE_RANGE`, `CombatManager`'s existing tick (unchanged by this addition) already attacks regardless of `EnemyAI`'s state, so a chasing enemy that catches up to a player starts attacking exactly as a stationary one already does when a player walks up to it. `HandleAttackIntent` (the player's own attack) is likewise unaffected — a player can still attack a chasing or returning enemy at any point, same as an idle one.
+
+### 9.4 Known limitation: untestable pathfinding
+
+`PathfindingService` and `Humanoid:MoveTo` don't exist in Lune's fake Roblox environment (same category as `AnalyticsService` — see Section 7's testing checklist). `EnemyAI`'s state machine (Idle → Chasing → Idle transitions, aggro/release radius thresholds) is unit-tested the same way `CombatManager`'s range checks are; the actual pathfinding/movement calls are a thin, unit-untested wrapper verified only by manual Studio playtesting (does the enemy visibly walk toward you, does it navigate around a tree rather than getting stuck).

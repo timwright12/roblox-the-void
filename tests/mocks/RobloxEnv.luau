@@ -80,6 +80,7 @@ function RobloxEnv.setup()
 
 	local enemyTable = realRequire("../../src/ReplicatedStorage/Data/EnemyTable")
 	local weaponTable = realRequire("../../src/ReplicatedStorage/Data/WeaponTable")
+	local playerFinder = realRequire("../../src/ReplicatedStorage/Modules/PlayerFinder")
 
 	-- RemoteDefinitions normally creates real RemoteEvent/RemoteFunction
 	-- Instances on require. Server-side unit tests call module functions
@@ -120,6 +121,17 @@ function RobloxEnv.setup()
 		Remotes = {
 			RemoteDefinitions = fakeModule(remoteDefinitions),
 		},
+		Modules = {
+			PlayerFinder = fakeModule(playerFinder),
+		},
+		-- EnemyModels is deliberately absent by default: EnemySpawner falls
+		-- back to a placeholder model when it's not there (see
+		-- EnemySpawner.luau's buildEnemyModel), which is what every existing
+		-- test relies on. A test that needs a real model sets
+		-- env.replicatedStorage.EnemyModels itself (see EnemySpawner.spec.luau).
+		FindFirstChild = function(self, name: string)
+			return self[name]
+		end,
 	}
 
 	local serverPackages = {
@@ -144,6 +156,21 @@ function RobloxEnv.setup()
 				return self._tags[tag] or {}
 			end,
 		},
+		-- CreatePath always returns a "no path found" Path: EnemyAI's
+		-- moveTowards is a thin, unit-untested wrapper (see EnemyAI.luau's
+		-- header) that no-ops on a failed path, which is what every existing
+		-- test relies on (none of them exercise real pathfinding/movement).
+		PathfindingService = {
+			CreatePath = function()
+				return {
+					Status = nil,
+					ComputeAsync = function() end,
+					GetWaypoints = function()
+						return {}
+					end,
+				}
+			end,
+		},
 	}
 
 	game = {
@@ -156,7 +183,17 @@ function RobloxEnv.setup()
 		end,
 	} :: any
 
-	workspace = { Name = "Workspace" } :: any
+	-- Raycast defaults to "hit nothing" (no terrain in the fake environment)
+	-- — EnemySpawner's placeOnGround falls back to the original spawnCFrame
+	-- unchanged in that case, which is what every existing spawn test
+	-- relies on. A test that needs a real ground hit sets
+	-- workspace.Raycast itself (see EnemySpawner.spec.luau).
+	workspace = {
+		Name = "Workspace",
+		Raycast = function()
+			return nil
+		end,
+	} :: any
 
 	return {
 		players = players,
