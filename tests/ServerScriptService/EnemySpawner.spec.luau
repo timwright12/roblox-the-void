@@ -31,6 +31,18 @@ return function()
 			check.equal(enemy.damage, 12) -- Grunt damage per EnemyTable
 		end)
 
+		test.case("groundedSpawnCFrame lifts a spawn point so the model's feet touch the given ground height", function()
+			-- A model whose PrimaryPart sits at the vertical center of its
+			-- bounding box (e.g. a Torso/HumanoidRootPart mid-body), height 6
+			-- studs tall — half above, half below the PrimaryPart.
+			local groundedY = EnemySpawner._groundedSpawnY(0, 6)
+
+			-- PrimaryPart needs to be 3 studs (half the height) above the
+			-- ground so the model's bottom (3 studs below PrimaryPart) lands
+			-- exactly on the ground.
+			check.equal(groundedY, 3)
+		end)
+
 		test.case("clones the real model from ReplicatedStorage.EnemyModels when one exists", function()
 			local template = Instance.new("Model")
 			template.Name = "GruntRobot"
@@ -53,6 +65,41 @@ return function()
 			check.not_nil(enemy.model:FindFirstChild("Head"))
 
 			env.replicatedStorage.EnemyModels = nil
+		end)
+
+		test.case("falls back to the placeholder model if the real one has no Humanoid", function()
+			local brokenTemplate = Instance.new("Model")
+			brokenTemplate.Name = "GruntRobot"
+			local torso = Instance.new("Part")
+			torso.Name = "Torso"
+			torso.Parent = brokenTemplate
+			brokenTemplate.PrimaryPart = torso
+			-- Deliberately no Humanoid — simulates a Toolbox model someone
+			-- forgot to add one to (a real mistake made once during this
+			-- project's own Phase 4 model setup).
+
+			local enemyModels = Instance.new("Model")
+			enemyModels.Name = "EnemyModels"
+			brokenTemplate.Parent = enemyModels
+			env.replicatedStorage.EnemyModels = enemyModels
+
+			-- This case deliberately triggers EnemySpawner's warn() call —
+			-- expected, intentional output per the project's testing rules on
+			-- intentionally-triggered errors/warnings (there's no warn-capture
+			-- seam in this test harness, so this is verified by reading the
+			-- test's own console output for the "no Humanoid" line above,
+			-- rather than a programmatic assertion).
+			local ok, enemyIdOrError = pcall(EnemySpawner.SpawnEnemy, "Grunt", CFrame.new(0, 0, 0))
+			env.replicatedStorage.EnemyModels = nil
+
+			check.is_true(ok)
+			if not ok then
+				error(enemyIdOrError, 0)
+			end
+			local enemy = EnemySpawner.GetEnemy(enemyIdOrError)
+
+			check.equal(enemy.model.Name, "Grunt") -- placeholder's name, not "GruntRobot"
+			check.equal(enemy.humanoid.MaxHealth, 60)
 		end)
 
 		test.case("respawns after death at the same spawn point", function()

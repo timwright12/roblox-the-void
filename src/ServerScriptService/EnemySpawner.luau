@@ -60,9 +60,10 @@ end
 --- EnemyTable.luau) if one has been placed there, applying this enemy's
 --- HP/speed onto the clone's Humanoid (a shared template can't bake in
 --- per-tier stats). Falls back to the code-built placeholder cube when no
---- such model exists yet — this is what keeps the game running (and the
---- test suite passing, since the fake Roblox environment has no
---- EnemyModels folder) before every enemy type has a real model authored.
+--- such model exists yet, or when one exists but is missing a Humanoid (a
+--- misconfigured Toolbox model, e.g. one someone forgot to add a Humanoid
+--- to) — a real model's absence or misconfiguration should degrade to the
+--- placeholder, not take down enemy spawning entirely.
 local function buildEnemyModel(enemyTypeName: string, stats)
 	local enemyModels = ReplicatedStorage:FindFirstChild("EnemyModels")
 	local template = enemyModels and enemyModels:FindFirstChild(stats.modelName)
@@ -72,11 +73,49 @@ local function buildEnemyModel(enemyTypeName: string, stats)
 
 	local model = template:Clone()
 	local humanoid = model:FindFirstChildOfClass("Humanoid")
+	if not humanoid then
+		warn(`EnemySpawner: "{stats.modelName}" in ReplicatedStorage.EnemyModels has no Humanoid — using the placeholder model instead`)
+		return buildPlaceholderModel(enemyTypeName, stats)
+	end
+
 	humanoid.MaxHealth = stats.hp
 	humanoid.Health = stats.hp
 	humanoid.WalkSpeed = stats.speed
 
 	return model
+end
+
+local RAYCAST_START_HEIGHT = 200 -- studs above any spawn point's given Y; must clear the tallest terrain
+
+--- Given a ground height and a model's total height (from GetBoundingBox),
+--- returns the Y a model's PrimaryPart CFrame needs so the model's bottom
+--- rests exactly on the ground — the PrimaryPart is assumed to sit at the
+--- model's vertical center (true for a HumanoidRootPart/Torso on a standard
+--- rig), so it needs to be raised by half the model's height above ground.
+--- A pure function (no workspace/raycast access) so it's unit-testable
+--- without a real Roblox environment — see EnemySpawner.spec.luau.
+function EnemySpawner._groundedSpawnY(groundY: number, modelHeight: number): number
+	return groundY + modelHeight / 2
+end
+
+--- Raycasts straight down from high above the given X/Z (starting well above
+--- any terrain in this map) to find the actual ground height there, then
+--- repositions the model so it rests on that ground instead of at the spawn
+--- CFrame's original (Phase-1-placeholder-tuned) Y. Falls back to the
+--- original spawnCFrame unchanged if the raycast hits nothing (e.g. a spawn
+--- point placed over a gap, or no terrain in a test environment).
+local function placeOnGround(model, spawnCFrame: CFrame)
+	local origin = Vector3.new(spawnCFrame.Position.X, RAYCAST_START_HEIGHT, spawnCFrame.Position.Z)
+	local raycastResult = workspace:Raycast(origin, Vector3.new(0, -RAYCAST_START_HEIGHT * 2, 0))
+
+	if not raycastResult then
+		model:SetPrimaryPartCFrame(spawnCFrame)
+		return
+	end
+
+	local _, boundingBoxSize = model:GetBoundingBox()
+	local groundedY = EnemySpawner._groundedSpawnY(raycastResult.Position.Y, boundingBoxSize.Y)
+	model:SetPrimaryPartCFrame(CFrame.new(spawnCFrame.Position.X, groundedY, spawnCFrame.Position.Z))
 end
 
 --- Rolls a weighted random key from a table of { spawnChance = number, ... }
@@ -111,7 +150,7 @@ function EnemySpawner.SpawnEnemy(enemyTypeName: string, spawnCFrame: CFrame)
 	local enemyId = nextEnemyId
 
 	local model = buildEnemyModel(enemyTypeName, stats)
-	model:SetPrimaryPartCFrame(spawnCFrame)
+	placeOnGround(model, spawnCFrame)
 	model:SetAttribute("EnemyId", enemyId)
 	CollectionService:AddTag(model, ENEMY_TAG)
 	model.Parent = workspace

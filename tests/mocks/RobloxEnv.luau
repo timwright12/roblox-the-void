@@ -164,7 +164,17 @@ function RobloxEnv.setup()
 		end,
 	} :: any
 
-	workspace = { Name = "Workspace" } :: any
+	-- Raycast defaults to "hit nothing" (no terrain in the fake environment)
+	-- — EnemySpawner's placeOnGround falls back to the original spawnCFrame
+	-- unchanged in that case, which is what every existing spawn test
+	-- relies on. A test that needs a real ground hit sets
+	-- workspace.Raycast itself (see EnemySpawner.spec.luau).
+	workspace = {
+		Name = "Workspace",
+		Raycast = function()
+			return nil
+		end,
+	} :: any
 
 	return {
 		players = players,
