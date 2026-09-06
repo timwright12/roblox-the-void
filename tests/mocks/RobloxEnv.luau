@@ -80,6 +80,7 @@ function RobloxEnv.setup()
 
 	local enemyTable = realRequire("../../src/ReplicatedStorage/Data/EnemyTable")
 	local weaponTable = realRequire("../../src/ReplicatedStorage/Data/WeaponTable")
+	local playerFinder = realRequire("../../src/ReplicatedStorage/Modules/PlayerFinder")
 
 	-- RemoteDefinitions normally creates real RemoteEvent/RemoteFunction
 	-- Instances on require. Server-side unit tests call module functions
@@ -119,6 +120,9 @@ function RobloxEnv.setup()
 		},
 		Remotes = {
 			RemoteDefinitions = fakeModule(remoteDefinitions),
+		},
+		Modules = {
+			PlayerFinder = fakeModule(playerFinder),
 		},
 		-- EnemyModels is deliberately absent by default: EnemySpawner falls
 		-- back to a placeholder model when it's not there (see

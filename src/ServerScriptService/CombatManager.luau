@@ -20,6 +20,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local WeaponTable = require(ReplicatedStorage.Data.WeaponTable)
 local RemoteDefinitions = require(ReplicatedStorage.Remotes.RemoteDefinitions)
+local PlayerFinder = require(ReplicatedStorage.Modules.PlayerFinder)
 local Players = game:GetService("Players")
 
 local FALLBACK_WEAPON = WeaponTable.BaseSword
@@ -70,16 +71,8 @@ local function getEquippedWeapon(player: Player)
 	return WeaponTable[data.equippedWeapon] or FALLBACK_WEAPON
 end
 
-local function getPlayerRoot(player: Player): BasePart?
-	local character = player.Character
-	if not character then
-		return nil
-	end
-	return character:FindFirstChild("HumanoidRootPart")
-end
-
 local function isInRange(player: Player, model: Model, range: number): boolean
-	local playerRoot = getPlayerRoot(player)
+	local playerRoot = PlayerFinder.getPlayerRoot(player)
 	local enemyRoot = model.PrimaryPart
 	if not playerRoot or not enemyRoot then
 		return false
@@ -87,25 +80,6 @@ local function isInRange(player: Player, model: Model, range: number): boolean
 
 	local distance = (playerRoot.Position - enemyRoot.Position).Magnitude
 	return distance <= range
-end
-
---- Finds the nearest player within `range` studs of `originPosition`, or nil.
-local function findNearestPlayerInRange(originPosition: Vector3, range: number): Player?
-	local nearestPlayer = nil
-	local nearestDistance = range
-
-	for _, player in Players:GetPlayers() do
-		local playerRoot = getPlayerRoot(player)
-		if playerRoot then
-			local distance = (playerRoot.Position - originPosition).Magnitude
-			if distance <= nearestDistance then
-				nearestDistance = distance
-				nearestPlayer = player
-			end
-		end
-	end
-
-	return nearestPlayer
 end
 
 local function damagePlayer(player: Player, amount: number)
@@ -161,7 +135,7 @@ local function startHeadThrow(enemy)
 
 		local originPosition = enemy.model.PrimaryPart.Position
 		for _, player in Players:GetPlayers() do
-			local playerRoot = getPlayerRoot(player)
+			local playerRoot = PlayerFinder.getPlayerRoot(player)
 			if playerRoot then
 				local distance = (playerRoot.Position - originPosition).Magnitude
 				if distance <= variantStats.splashRadius then
@@ -191,14 +165,14 @@ function CombatManager._tickOneEnemyAttack(enemy, now: number)
 		end
 
 		local originPosition = enemy.model.PrimaryPart.Position
-		local target = findNearestPlayerInRange(originPosition, ENEMY_MELEE_RANGE)
+		local target = PlayerFinder.findNearestPlayerInRange(Players:GetPlayers(), originPosition, ENEMY_MELEE_RANGE)
 		if target then
 			lastEnemyAttackAt[enemy.id] = now
 			damagePlayer(target, enemy.variantStats and enemy.variantStats.damage or enemy.damage)
 		end
 	elseif enemy.attackType == "projectileInstantKillSplash" then
 		local originPosition = enemy.model.PrimaryPart.Position
-		local anyPlayerInRange = findNearestPlayerInRange(originPosition, ENEMY_MELEE_RANGE) ~= nil
+		local anyPlayerInRange = PlayerFinder.findNearestPlayerInRange(Players:GetPlayers(), originPosition, ENEMY_MELEE_RANGE) ~= nil
 		if anyPlayerInRange then
 			startHeadThrow(enemy)
 		end
