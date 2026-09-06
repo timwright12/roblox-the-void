@@ -1,4 +1,4 @@
-name: test
+name: Health checks
 
 # Runs the full Lune/frktest suite on PRs targeting main and on pushes to
 # main (i.e. after a merge) — see docs/the-void-implementation-plan.md
@@ -12,7 +12,7 @@ on:
       - main
 
 jobs:
-  test:
+  health-checks:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
