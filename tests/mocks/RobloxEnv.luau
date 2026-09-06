@@ -156,6 +156,21 @@ function RobloxEnv.setup()
 				return self._tags[tag] or {}
 			end,
 		},
+		-- CreatePath always returns a "no path found" Path: EnemyAI's
+		-- moveTowards is a thin, unit-untested wrapper (see EnemyAI.luau's
+		-- header) that no-ops on a failed path, which is what every existing
+		-- test relies on (none of them exercise real pathfinding/movement).
+		PathfindingService = {
+			CreatePath = function()
+				return {
+					Status = nil,
+					ComputeAsync = function() end,
+					GetWaypoints = function()
+						return {}
+					end,
+				}
+			end,
+		},
 	}
 
 	game = {
