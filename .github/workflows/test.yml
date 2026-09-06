@@ -1,0 +1,33 @@
+name: test
+
+# Runs the full Lune/frktest suite on PRs targeting main and on pushes to
+# main (i.e. after a merge) — see docs/the-void-implementation-plan.md
+# Section 7.1 for what this suite covers and its known limitations.
+on:
+  pull_request:
+    branches:
+      - main
+  push:
+    branches:
+      - main
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Install mise
+        uses: jdx/mise-action@v4
+
+      - name: Install Lune and Wally
+        run: |
+          mise use -g "github:lune-org/lune@latest"
+          mise use -g "github:UpliftGames/wally@latest"
+
+      - name: Install Wally dependencies
+        run: mise exec -- wally install
+
+      - name: Run test suite
+        run: mise exec -- lune run tests/_run.luau
