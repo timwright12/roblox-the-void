@@ -44,7 +44,7 @@ return function()
 		end)
 
 		test.case("Idle enemy stays Idle when no player is within the aggro radius", function()
-			newPlayerAt(1, Vector3.new(100, 0, 0)) -- far outside AGGRO_RADIUS_STUDS
+			newPlayerAt(1, Vector3.new(1000, 0, 0)) -- far outside AGGRO_RADIUS_STUDS
 
 			local nextState = EnemyAI._nextState("Idle", Vector3.new(0, 0, 0), env.players:GetPlayers())
 
@@ -63,7 +63,7 @@ return function()
 		end)
 
 		test.case("Chasing enemy returns to Idle once no player is within the release radius", function()
-			newPlayerAt(1, Vector3.new(100, 0, 0))
+			newPlayerAt(1, Vector3.new(1000, 0, 0))
 
 			local nextState = EnemyAI._nextState("Chasing", Vector3.new(0, 0, 0), env.players:GetPlayers())
 
@@ -76,6 +76,32 @@ return function()
 			local nextState = EnemyAI._nextState("Idle", Vector3.new(0, 0, 0), env.players:GetPlayers())
 
 			check.equal(nextState, "Idle")
+		end)
+	end)
+
+	test.suite("EnemyAI._shouldRetarget", function()
+		test.case("retargets when there is no current target", function()
+			local shouldRetarget = EnemyAI._shouldRetarget(nil, Vector3.new(10, 0, 0))
+
+			check.equal(shouldRetarget, true)
+		end)
+
+		test.case("does not retarget when the new point is within tolerance of the current target", function()
+			local currentTarget = Vector3.new(10, 0, 0)
+			local newTarget = Vector3.new(11, 0, 0) -- 1 stud away
+
+			local shouldRetarget = EnemyAI._shouldRetarget(currentTarget, newTarget)
+
+			check.equal(shouldRetarget, false)
+		end)
+
+		test.case("retargets when the new point is beyond tolerance of the current target", function()
+			local currentTarget = Vector3.new(10, 0, 0)
+			local newTarget = Vector3.new(20, 0, 0) -- 10 studs away
+
+			local shouldRetarget = EnemyAI._shouldRetarget(currentTarget, newTarget)
+
+			check.equal(shouldRetarget, true)
 		end)
 	end)
 end

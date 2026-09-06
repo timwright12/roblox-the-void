@@ -3,8 +3,15 @@
 -- before server confirms). See the-void-implementation-plan.md Section 3.
 --
 -- Minimal, no styling — a toggleable list of every WeaponTable entry with
--- buy/equip buttons. Opens via the "B" key (shop menu is "accessible any
--- time", per product brief Section 5.4 — not gated to a physical location).
+-- buy/equip buttons. Opens via the "B" key or the always-visible corner
+-- button below (shop menu is "accessible any time", per product brief
+-- Section 5.4 — not gated to a physical location). The corner button exists
+-- because "B" has no equivalent on touch-only devices (e.g. iPad) — without
+-- it, the shop would be unreachable there.
+--
+-- Not unit-tested: client UI/input isn't exercisable in Lune's fake Roblox
+-- environment (no rendering, no real Instance event wiring), same accepted
+-- gap as EnemyAI's movement code. Verified manually in Studio.
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -15,11 +22,20 @@ local WeaponTable = require(ReplicatedStorage.Data.WeaponTable)
 
 local localPlayer = Players.LocalPlayer
 
+local playerGui = localPlayer:WaitForChild("PlayerGui")
+
 local screenGui = Instance.new("ScreenGui")
 screenGui.Name = "ShopUI"
 screenGui.ResetOnSpawn = false
 screenGui.Enabled = false
-screenGui.Parent = localPlayer:WaitForChild("PlayerGui")
+screenGui.Parent = playerGui
+
+-- Separate ScreenGui (not toggled) so the open/close button stays visible
+-- even while the shop panel itself is hidden.
+local toggleGui = Instance.new("ScreenGui")
+toggleGui.Name = "ShopToggleUI"
+toggleGui.ResetOnSpawn = false
+toggleGui.Parent = playerGui
 
 local frame = Instance.new("Frame")
 frame.Name = "ShopFrame"
@@ -106,12 +122,25 @@ if initialState and initialState.ownedWeapons then
 end
 refreshRows()
 
+local function toggleShop()
+	screenGui.Enabled = not screenGui.Enabled
+end
+
 UserInputService.InputBegan:Connect(function(input, gameProcessedEvent)
 	if gameProcessedEvent then
 		return
 	end
 
 	if input.KeyCode == Enum.KeyCode.B then
-		screenGui.Enabled = not screenGui.Enabled
+		toggleShop()
 	end
 end)
+
+local toggleButton = Instance.new("TextButton")
+toggleButton.Name = "ShopToggleButton"
+toggleButton.Size = UDim2.fromOffset(80, 36)
+toggleButton.Position = UDim2.new(1, -90, 0, 10)
+toggleButton.Text = "Shop"
+toggleButton.Parent = toggleGui
+
+toggleButton.Activated:Connect(toggleShop)
