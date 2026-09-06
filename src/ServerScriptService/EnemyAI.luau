@@ -19,10 +19,11 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local PlayerFinder = require(ReplicatedStorage.Modules.PlayerFinder)
 
-local TICK_INTERVAL_SECONDS = 1
-local PATH_RECOMPUTE_INTERVAL_SECONDS = 1
-local AGGRO_RADIUS_STUDS = 25
+local TICK_INTERVAL_SECONDS = 0.25
+local PATH_RECOMPUTE_INTERVAL_SECONDS = 0.25
+local AGGRO_RADIUS_STUDS = 100
 local RELEASE_RADIUS_STUDS = AGGRO_RADIUS_STUDS * 1.5
+local RETARGET_TOLERANCE_STUDS = 3
 
 local EnemyAI = {}
 
@@ -67,9 +68,24 @@ function EnemyAI._nextState(currentState: string, enemyPosition: Vector3, player
 	return "Idle"
 end
 
+--- Pure decision: should a chasing enemy interrupt its current walk to head
+--- toward `newTarget`? Without this check, a recompute every
+--- PATH_RECOMPUTE_INTERVAL_SECONDS reissues Humanoid:MoveTo() even when the
+--- player has barely moved, which restarts the walk each time and reads as
+--- choppy/rigid rather than a smooth chase. Always retargets when there's no
+--- current target (e.g. just started chasing).
+function EnemyAI._shouldRetarget(currentTarget: Vector3?, newTarget: Vector3): boolean
+	if not currentTarget then
+		return true
+	end
+	return (newTarget - currentTarget).Magnitude > RETARGET_TOLERANCE_STUDS
+end
+
 --- Computes a path to `destination` and walks the enemy's Humanoid along it.
 --- A thin wrapper around PathfindingService — not unit-tested, see module
 --- header.
+local currentTargetByEnemyId = {}
+
 local function moveTowards(enemy, destination: Vector3)
 	local origin = enemy.model.PrimaryPart.Position
 	local path = PathfindingService:CreatePath({})
@@ -77,16 +93,19 @@ local function moveTowards(enemy, destination: Vector3)
 		path:ComputeAsync(origin, destination)
 	end)
 
-	print("DEBUG EnemyAI moveTowards:", enemy.enemyName, "ok=", ok, "status=", path.Status)
-
 	if not ok or path.Status ~= Enum.PathStatus.Success then
 		return
 	end
 
 	local waypoints = path:GetWaypoints()
-	print("DEBUG EnemyAI waypoints count=", #waypoints)
-	if waypoints[2] then
-		enemy.humanoid:MoveTo(waypoints[2].Position)
+	local nextPoint = waypoints[2] and waypoints[2].Position
+	if not nextPoint then
+		return
+	end
+
+	if EnemyAI._shouldRetarget(currentTargetByEnemyId[enemy.id], nextPoint) then
+		currentTargetByEnemyId[enemy.id] = nextPoint
+		enemy.humanoid:MoveTo(nextPoint)
 	end
 end
 
@@ -102,7 +121,6 @@ function EnemyAI.Tick()
 		local enemyPosition = enemy.model.PrimaryPart.Position
 		local nextState = EnemyAI._nextState(currentState, enemyPosition, players)
 		stateByEnemyId[enemy.id] = nextState
-		print("DEBUG EnemyAI tick:", enemy.enemyName, currentState, "->", nextState, "pos=", enemyPosition, "walkSpeed=", enemy.humanoid.WalkSpeed)
 
 		if nextState == "Chasing" then
 			local lastCompute = lastPathComputeAt[enemy.id]
@@ -119,6 +137,7 @@ function EnemyAI.Tick()
 		elseif currentState == "Chasing" and nextState == "Idle" then
 			-- Just released: path back to spawn once, rather than every tick.
 			lastPathComputeAt[enemy.id] = nil
+			currentTargetByEnemyId[enemy.id] = nil
 			moveTowards(enemy, enemy.spawnCFrame.Position)
 		end
 	end
@@ -131,6 +150,7 @@ end
 function EnemyAI._resetForTests()
 	stateByEnemyId = {}
 	lastPathComputeAt = {}
+	currentTargetByEnemyId = {}
 end
 
 return EnemyAI
